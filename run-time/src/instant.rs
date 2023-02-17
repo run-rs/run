@@ -197,6 +197,24 @@ impl Instant {
     }
 }
 
+impl Instant {
+    pub fn from_millis(mills:u64) -> Self {
+        Instant(0) + std::time::Duration::from_millis(mills)
+    }
+
+    pub fn from_nanos(nanos:u64) -> Self {
+        Instant(0) + std::time::Duration::from_nanos(nanos)
+    }
+
+    pub fn from_secs(secs:u64) -> Self {
+        Instant(0) + std::time::Duration::from_secs(secs)
+    }
+
+    pub fn from_micros(micros:u64) -> Self {
+        Instant(0) + std::time::Duration::from_micros(micros)
+    }
+}
+
 impl Add<Duration> for Instant {
     type Output = Instant;
 

@@ -130,7 +130,7 @@ fn main() {
                     ippkt.clear_flags();
                     ippkt.set_time_to_live(128);
                     ippkt.set_source_ip(Ipv4Addr([192, 168, 57, 10 + (adder % total_ips)]));
-                    adder += 1;
+                    adder = adder.wrapping_add(1);
                     ippkt.set_dest_ip(Ipv4Addr([192, 168, 23, 2]));
                     ippkt.set_protocol(IpProtocol::UDP);
                     ippkt.adjust_checksum();
