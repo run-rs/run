@@ -12,7 +12,10 @@ ctrlc = { version = "3.0", features = ["termination"]}
 run-time = {path = "../run-time", package = "run-time"}
 run-dpdk = {path = "../run-dpdk", package = "run-dpdk"}
 run-packet = {path = "../run-packet", package = "run-packet"}
-
+log = { version = "0.4.4"}
+byteorder = "1"
+clap = {version="3.1.6", features=["derive"]}
+mockalloc = "0.1.2"
 
 [[example]]
 name = "port_test"
@@ -61,3 +64,8 @@ path = "dpdk/traffic_fwd.rs"
 [[example]]
 name = "smol_traffic_fwd"
 path = "dpdk/smol_traffic_fwd.rs"
+
+
+[[example]]
+name = "run_tcp"
+path = "protocol_stack/run_tcp.rs"
