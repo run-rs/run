@@ -29,8 +29,8 @@ pub struct TcpStack<P,C,PACKETBUILDER,PACKETPARSER>
 where
   P: Producer,
   C: Consumer,
-  PACKETBUILDER: Fn(&mut Mbuf,&TcpRepr,&RouterInfo),
-  PACKETPARSER: Fn(&Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>, 
+  PACKETBUILDER: for<'a> Fn(&'a mut Mbuf,&TcpRepr,&RouterInfo),
+  PACKETPARSER: for<'a> Fn(&'a Mbuf) ->Option<(TcpRepr,RouterInfo,&'a [u8])>, 
 {
   local_mac:MacAddr,
   local_port:u16,
@@ -79,8 +79,8 @@ impl <P,C,PACKETBUILDER,PACKETPARSER> TcpStack<P,C,PACKETBUILDER,PACKETPARSER>
 where 
   P: Producer,
   C: Consumer,
-  PACKETBUILDER: Fn(&mut Mbuf,&TcpRepr,&RouterInfo),
-  PACKETPARSER: Fn(&Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>,
+  PACKETBUILDER: for<'a> Fn(&'a mut Mbuf,&TcpRepr,&RouterInfo),
+  PACKETPARSER: for<'a> Fn(&'a Mbuf) ->Option<(TcpRepr,RouterInfo,&'a [u8])>, 
 {
   pub fn new(p:P,
           c:C,
@@ -166,8 +166,8 @@ impl <P,C,PACKETBUILDER,PACKETPARSER> TcpStack<P,C,PACKETBUILDER,PACKETPARSER>
 where 
   P: Producer,
   C: Consumer,
-  PACKETBUILDER: Fn(&mut Mbuf,&TcpRepr,&RouterInfo),
-  PACKETPARSER: Fn(&Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>,
+  PACKETBUILDER: for<'a> Fn(&'a mut Mbuf,&TcpRepr,&RouterInfo),
+  PACKETPARSER: for<'a> Fn(&'a Mbuf) ->Option<(TcpRepr,RouterInfo,&'a [u8])>, 
 {
   fn set_state(&mut self,state:TcpState) {
     log::log!(log::Level::Trace,"tcp state {} => {}",self.state,state);
@@ -564,7 +564,7 @@ where
     reply
   }
 
-  fn ack_reply(&self,repr:&TcpRepr) -> TcpRepr {
+  fn ack_reply(&mut self,repr:&TcpRepr) -> TcpRepr {
     let mut reply = TcpRepr { 
       ctrl: TcpControl::None, 
       seq_number: TcpSeqNumber(0), 
@@ -632,7 +632,7 @@ where
     }
   }
 
-  fn process(&mut self,ts:Instant,mbuf:Mbuf,repr:&TcpRepr,payload:&[u8]) -> Option<Mbuf> {
+  fn process(&mut self,ts:Instant,mut mbuf:Mbuf,repr:&TcpRepr,payload:&[u8]) -> Option<Mbuf> {
     let router_info = RouterInfo {
       dest_ipv4:self.remote_ipv4,
       dest_mac:self.remote_mac,
@@ -811,7 +811,10 @@ where
             return None;
           }
           self.challenge_ack_timer = ts - Duration::from_secs(1);
-          (self.builder)(&mut mbuf,&self.ack_reply(repr),&router_info);
+          let reply = {
+            self.ack_reply(repr)
+          };
+          (self.builder)(&mut mbuf,&reply,&router_info);
           return Some(mbuf);
         }
       }
@@ -1341,7 +1344,8 @@ where
       self.remote_ipv4,
       self.remote_port);
       
-      (self.builder)(&mut mbuf,&self.ack_reply(&repr),&router_info);
+      let reply = self.ack_reply(&repr);
+      (self.builder)(&mut mbuf,&reply,&router_info);
       return Some(mbuf);
     } else {
       None
@@ -1354,8 +1358,8 @@ impl <P,C,PACKETBUILDER,PACKETPARSER>
 where 
   P: Producer,
   C: Consumer,
-  PACKETBUILDER: Fn(&mut Mbuf,&TcpRepr,&RouterInfo),
-  PACKETPARSER: Fn(&Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>, 
+  PACKETBUILDER: for<'a> Fn(&'a mut Mbuf,&TcpRepr,&RouterInfo),
+  PACKETPARSER: for<'a> Fn(&'a Mbuf) ->Option<(TcpRepr,RouterInfo,&'a [u8])>,
 {
   fn is_close(&self)-> bool {
     self.local_port == 0  
@@ -1462,7 +1466,7 @@ where
     return true;
   }
   
-  fn on_recv(&mut self,mut mbuf:Mbuf,ts:Instant) -> Option<Mbuf> {
+  fn on_recv(&mut self,mbuf:Mbuf,ts:Instant) -> Option<Mbuf> {
     self.push_data_to_consumer();
 
     let (repr,router_info,payload) = (self.parser)(&mbuf)?;

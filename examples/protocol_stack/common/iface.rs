@@ -32,7 +32,7 @@ pub trait Stack {
     where F: FnOnce(Mbuf) -> bool;
 }
 
-pub fn poll<S:Stack,P:Device>(dev:P,stack:S) {
+pub fn poll<S:Stack,P:Device>(dev:&mut P,stack:&mut S) {
   loop {
     if stack.is_close() {
       break;
@@ -53,30 +53,33 @@ pub fn poll<S:Stack,P:Device>(dev:P,stack:S) {
   }
 }
 
-pub fn poll_in_batch<S:Stack,P:Device + Batch,const N:usize>(dev:P,stack:S) {
+pub fn poll_in_batch<S:Stack,P:Device + Batch,const N:usize>(dev:&mut P,stack:&mut S) {
   loop {
     if stack.is_close() {
       break;
     }
     let ts = Instant::now();
     let mut recv_batch = ArrayVec::<Mbuf,N>::new();
+    let mut resp_batch = ArrayVec::<Mbuf,N>::new();
     let mut send_batch = ArrayVec::<Mbuf,N>::new();
     dev.recv_batch(&mut recv_batch);
     for pkt in recv_batch.into_iter() {
       if let Some(response) = stack.on_recv(pkt, ts) {
-        send_batch.push(response);
+        resp_batch.push(response);
       }
     }
-    dev.send_batch(&mut send_batch);
-    let fail_to_send = send_batch.len();
-    dev.alloc_batch(&mut send_batch);
-    let mut write_at = fail_to_send;
-    while write_at != N && stack.has_data(ts) {
-      stack.do_send(send_batch[write_at],ts,|mbuf| {
-        dev.send(mbuf).is_none()
-      });
-      write_at += 1;
+    dev.send_batch(&mut resp_batch);
+    assert_eq!(resp_batch.len(),0);
+
+    dev.alloc_batch(&mut resp_batch);
+    
+    for mbuf in resp_batch.into_iter() {
+      stack.do_send(mbuf, ts, |mbuf| {
+        send_batch.push(mbuf);
+        true
+      })
     }
+    
     dev.send_batch(&mut send_batch);
   }
 }

@@ -117,6 +117,12 @@ impl<T: PktMut> TcpPacket<T> {
     }
 
     #[inline]
+    pub fn option_bytes_mut(&mut self) -> &mut [u8] {
+        let header_len = self.header_len();
+        return &mut self.buf.chunk_mut()[TCP_HEADER_LEN..header_len as usize]
+    }
+
+    #[inline]
     pub fn adjust_ipv4_checksum(&mut self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) {
         self.set_checksum(0);
 
