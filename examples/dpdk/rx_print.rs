@@ -54,7 +54,7 @@ fn init_port(
 fn main() {
     DpdkOption::new().init().unwrap();
 
-    let port_id = 0;
+    let port_id = 3;
     let nb_qs = 1;
     let mp_name = "mp";
     let mut mpconf = MempoolConf::default();
@@ -121,12 +121,24 @@ fn main() {
                         Ok(ethpkt) => ethpkt,
                     };
 
+                    println!(
+                        "receive ethernet packet {} => {}",
+                        ethpkt.source_mac(),
+                        ethpkt.dest_mac()
+                    );
+
                     let ippkt = match Ipv4Packet::parse(ethpkt.payload()) {
                         Err(_) => continue,
                         Ok(ippkt) => ippkt,
                     };
                     let src_ip = ippkt.source_ip();
                     let dst_ip = ippkt.dest_ip();
+
+                    println!(
+                        "receive ippkt {} => {}",
+                        src_ip,
+                        dst_ip
+                    );
 
                     println!(
                         "receive ippkt with checksum: {}, correct? {}",

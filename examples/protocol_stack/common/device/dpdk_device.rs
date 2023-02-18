@@ -1,4 +1,4 @@
-use super::super::iface::{Device, Batch};
+use super::super::{Device, Batch};
 use arrayvec::{self, ArrayVec};
 #[allow(unused_imports)]
 use run_dpdk::*;
@@ -52,48 +52,20 @@ pub struct DpdkDeviceHelper {
 
 impl DpdkDeviceHelper {
   pub fn build(port_id:u16) -> Option<DpdkDevice> {
-    if !run_dpdk::try_service().is_ok() {
-      Self::init_eal();
-    }
-    let port_info = run_dpdk::service().port_infos().unwrap();
-    if port_id as usize >= port_info.len() {
-      return None;
-    }
-    let port = &port_info[port_id as usize];
+    Self::init_eal(port_id);
     //let rx_pkt_len = port.max_rx_pktlen();
-    let max_rx_qs = port.max_rx_queues();
-    let max_tx_qs = port.max_tx_queues();
-    let mut rxq= None;
-    let mut txq= None;
-    for i in 0..max_rx_qs {
-      rxq = run_dpdk::service().rx_queue(port_id, i).ok();
-      if rxq.is_some() {
-        break;
-      }
-    }
-    if rxq.is_none() {
-      return None;
-    }
-    for i in 0..max_tx_qs {
-      txq = run_dpdk::service().tx_queue(port_id, i).ok();
-      if txq.is_some() {
-        break;
-      }
-    }
-    if txq.is_none() {
-      return None;
-    }
+    let rxq= run_dpdk::service().rx_queue(port_id, 0).ok()?;
+    let txq= run_dpdk::service().tx_queue(port_id, 0).ok()?;
     return Some(DpdkDevice { 
-                      rxq: rxq.unwrap(), 
-                      txq: txq.unwrap(),
+                      rxq: rxq, 
+                      txq: txq,
                       recv_batch: ArrayVec::new(),
-                      mempool: run_dpdk::service().mempool("mp").unwrap()});
+                      mempool: run_dpdk::service().mempool("mp").ok()?});
   }
 
-  fn init_eal() {
+  fn init_eal(port_id:u16) {
     run_dpdk::DpdkOption::new().init().unwrap();
-    let port_id = 0;
-    let nb_qs = 16;
+    let nb_qs = 1;
     let mp_name = "mp";
 
     let mut mconf = run_dpdk::MempoolConf::default();

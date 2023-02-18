@@ -51,14 +51,15 @@ fn build_udp_manual(mbuf: &mut Mbuf, payload_len: usize) {
     ippkt.set_ident(0x5c65);
     ippkt.clear_flags();
     ippkt.set_time_to_live(128);
-    ippkt.set_source_ip(Ipv4Addr([192, 168, 57, 10]));
+    ippkt.set_source_ip(Ipv4Addr([192, 168, 22, 2]));
     ippkt.set_dest_ip(Ipv4Addr([192, 168, 23, 2]));
     ippkt.set_protocol(IpProtocol::UDP);
     ippkt.adjust_checksum();
 
     let mut ethpkt = EtherPacket::prepend_header(ippkt.release(), &ETHER_HEADER_TEMPLATE);
     ethpkt.set_dest_mac(MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]));
-    ethpkt.set_source_mac(MacAddr([0x00, 0x50, 0x56, 0xae, 0x76, 0xf5]));
+    //ethpkt.set_source_mac(MacAddr([0x00, 0x50, 0x56, 0xae, 0x76, 0xf5]));
+    ethpkt.set_source_mac(MacAddr([0x10, 0x70, 0xfd, 0x15, 0x77, 0xbf]));
     ethpkt.set_ethertype(EtherType::IPV4);
 }
 
@@ -240,7 +241,7 @@ fn init_port(
 fn main() {
     DpdkOption::new().init().unwrap();
 
-    let port_id = 0;
+    let port_id = 3;
     let nb_qs = 1;
     let mp_name = "mp";
     let mut mpconf = MempoolConf::default();
@@ -277,7 +278,7 @@ fn main() {
     })
     .unwrap();
 
-    let payload_len = 1800;
+    let payload_len = 1518 - ETHER_HEADER_LEN - IPV4_HEADER_LEN - UDP_HEADER_LEN;
 
     let mut jhs = Vec::new();
     for i in 0..nb_qs {
@@ -292,11 +293,12 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_secs(1));
 
                 let mut mbuf = mp.try_alloc().unwrap();
-                build_udp_offload(&mut mbuf, payload_len);
+                build_udp_manual(&mut mbuf, payload_len);
 
                 batch.push(mbuf);
                 while batch.len() > 0 {
                     let _sent = txq.tx(&mut batch);
+                    assert_eq!(_sent,1);
                 }
             }
         });

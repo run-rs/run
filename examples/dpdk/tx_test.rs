@@ -60,7 +60,7 @@ fn init_port(
 fn main() {
     DpdkOption::new().init().unwrap();
 
-    let port_id = 0;
+    let port_id = 3;
     let nb_qs = 14;
     let mp_name = "mp";
     let mut mpconf = MempoolConf::default();
