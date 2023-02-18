@@ -13,7 +13,7 @@ pub use device::DpdkDeviceHelper;
 
 pub(crate) use rand::Rand;
 pub(crate) use network::parser_addr;
-pub(crate) use iface::Interface;
+pub(crate) use iface::{poll,poll_in_batch};
 pub(crate) use iface::Stack;
 pub(crate) use assembler::Assembler;
 pub(crate) use assembler::AssemblerIter;

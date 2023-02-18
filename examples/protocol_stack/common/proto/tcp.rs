@@ -285,7 +285,7 @@ impl Timer {
     }
   }
 
-  fn set_keep_alive(&mut self) {
+  pub fn set_keep_alive(&mut self) {
     if let Timer::Idle {
         ref mut keep_alive_at,
     } = *self
@@ -324,17 +324,17 @@ impl Timer {
     }
   }
 
-  fn set_for_fast_retransmit(&mut self) {
+  pub fn set_for_fast_retransmit(&mut self) {
     *self = Timer::FastRetransmit
   }
 
-  fn set_for_close(&mut self, timestamp: Instant) {
+  pub fn set_for_close(&mut self, timestamp: Instant) {
     *self = Timer::Close {
         expires_at: timestamp + CLOSE_DELAY,
     }
   }
 
-  fn is_retransmit(&self) -> bool {
+  pub fn is_retransmit(&self) -> bool {
     match *self {
         Timer::Retransmit { .. } | Timer::FastRetransmit => true,
         _ => false,
@@ -369,6 +369,7 @@ impl TcpControl {
   }
 }
 
+#[derive(Debug,PartialEq,Eq)]
 pub struct TcpRepr {
   pub ctrl:TcpControl,
   pub seq_number: TcpSeqNumber,
@@ -377,9 +378,29 @@ pub struct TcpRepr {
   pub window_scale: Option<u8>,
   pub max_seg_size: Option<u16>,
   pub sack_permitted: bool,
-  pub sack_ranges: [Option<(u32,u32)>;3]
+  pub sack_ranges: [Option<(u32,u32)>;3],
 }
 
+impl core::fmt::Display for TcpRepr {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    match self.ctrl {
+      TcpControl::Syn => write!(f, " syn")?,
+      TcpControl::Fin => write!(f, " fin")?,
+      TcpControl::Rst => write!(f, " rst")?,
+      TcpControl::Psh => write!(f, " psh")?,
+      TcpControl::None => (),
+    }
+    write!(f, " seq={}", self.seq_number)?;
+    if let Some(ack_number) = self.ack_number {
+      write!(f, " ack={}", ack_number)?;
+    }
+    write!(f, " win={}", self.window_len)?;
+    if let Some(max_seg_size) = self.max_seg_size {
+        write!(f, " mss={}", max_seg_size)?;
+    }
+    Ok(())
+  }
+}
 
 pub struct RouterInfo {
   pub dest_mac:MacAddr,

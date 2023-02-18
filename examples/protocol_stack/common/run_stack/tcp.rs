@@ -1,13 +1,10 @@
 use run_dpdk::Mbuf;
-use run_dpdk::Pbuf;
 use run_packet::ether::ETHER_HEADER_LEN;
-use run_packet::ether::EtherPacket;
 use run_packet::ipv4::IPV4_HEADER_LEN;
 use run_packet::ipv4::Ipv4Addr;
 use run_packet::ether::MacAddr;
 use run_packet::tcp::TCP_HEADER_LEN;
 use run_time::Instant;
-use std::fmt;
 use std::time::Duration;
 
 use crate::common::Assembler;
@@ -33,7 +30,7 @@ where
   P: Producer,
   C: Consumer,
   PACKETBUILDER: Fn(&mut Mbuf,&TcpRepr,&RouterInfo),
-  PACKETPARSER: Fn(&mut Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>, 
+  PACKETPARSER: Fn(&Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>, 
 {
   local_mac:MacAddr,
   local_port:u16,
@@ -83,7 +80,7 @@ where
   P: Producer,
   C: Consumer,
   PACKETBUILDER: Fn(&mut Mbuf,&TcpRepr,&RouterInfo),
-  PACKETPARSER: Fn(&mut Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>, 
+  PACKETPARSER: Fn(&Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>,
 {
   pub fn new(p:P,
           c:C,
@@ -170,7 +167,7 @@ where
   P: Producer,
   C: Consumer,
   PACKETBUILDER: Fn(&mut Mbuf,&TcpRepr,&RouterInfo),
-  PACKETPARSER: Fn(&mut Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>, 
+  PACKETPARSER: Fn(&Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>,
 {
   fn set_state(&mut self,state:TcpState) {
     log::log!(log::Level::Trace,"tcp state {} => {}",self.state,state);
@@ -232,6 +229,12 @@ where
     } else {
       self.close();
     }
+  }
+
+  fn push_data_to_consumer(&mut self) {
+    let max_push_size = self.rx_buffer.len();
+    let data = self.consumer.consume(max_push_size);
+    self.rx_buffer.dequeue_slice(data);
   }
 
   fn timed_out(&self,ts:Instant) -> bool {
@@ -314,7 +317,7 @@ where
     can_send || can_fin
   }
 
-  fn fill_mbuf<F>(&mut self,mut mbuf:Mbuf,ts:Instant,emit:F)
+  fn build<F>(&mut self,mut mbuf:Mbuf,ts:Instant,emit:F)
   where 
     F:FnOnce(Mbuf) -> bool {
     let mut repr = TcpRepr {
@@ -542,6 +545,808 @@ where
       self.reset()
     }
   }
+
+  fn rst_reply(&self,repr:&TcpRepr) -> TcpRepr {
+    debug_assert!(repr.ctrl != TcpControl::Rst);
+    let mut reply = TcpRepr { 
+      ctrl: TcpControl::Rst, 
+      seq_number: repr.ack_number.unwrap_or_default(), 
+      ack_number: None, 
+      window_len: 0, 
+      window_scale: None, 
+      max_seg_size: None, 
+      sack_permitted: false, 
+      sack_ranges: [None,None,None],
+    };
+    if repr.ctrl == TcpControl::Syn && repr.ack_number.is_none() {
+      reply.ack_number = Some(repr.seq_number + 1);
+    }
+    reply
+  }
+
+  fn ack_reply(&self,repr:&TcpRepr) -> TcpRepr {
+    let mut reply = TcpRepr { 
+      ctrl: TcpControl::None, 
+      seq_number: TcpSeqNumber(0), 
+      ack_number: None, 
+      window_len: 0, 
+      window_scale: None, 
+      max_seg_size: None, 
+      sack_permitted: false, 
+      sack_ranges: [None,None,None],
+    };
+
+    // From RFC 793
+    reply.seq_number = self.remote_last_seq;
+    reply.ack_number = Some(self.remote_seq_no + self.rx_buffer.len());
+    self.remote_last_ack = reply.ack_number;
+
+    // From RFC 1323
+    reply.window_len = self.scaled_window();
+    self.remote_last_win = reply.window_len;
+
+    if self.remote_has_sack {
+      log::log!(log::Level::Trace,
+        "tcp: `{}:{}` <==> `{}:{}`: sending sACK option with \
+                                    current assembler ranges",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port);
+      
+      reply.sack_ranges[0] = None;
+      
+      if let Some(last_seg_seq) = self.local_rx_last_seq.map(|s| {
+        s.0 as u32
+      }) {
+        reply.sack_ranges[0] = self.assembler
+                                   .iter_data(reply.ack_number
+                                                                .map(|s| s.0 as usize)
+                                                                .unwrap_or(0))
+                                   .map(|(left,right)| (left as u32, right as u32))
+                                   .find(|(left,right)| *left <= last_seg_seq && *right >= last_seg_seq);
+      }
+
+      if reply.sack_ranges[0].is_none() {
+        reply.sack_ranges[0] = self.assembler
+                                   .iter_data(reply.ack_number.map(|s| s.0 as usize)
+                                                                            .unwrap_or(0))
+                                   .map(|(left,right)| (left as u32,right as u32))
+                                   .next();
+      }
+    }
+
+    reply
+  }
+
+  fn reply(&self,repr:&TcpRepr) -> TcpRepr {
+    TcpRepr { 
+      ctrl: TcpControl::None, 
+      seq_number: TcpSeqNumber(0), 
+      ack_number: None, 
+      window_len: 0, 
+      window_scale: None, 
+      max_seg_size: None, 
+      sack_permitted: false, 
+      sack_ranges: [None,None,None] 
+    }
+  }
+
+  fn process(&mut self,ts:Instant,mbuf:Mbuf,repr:&TcpRepr,payload:&[u8]) -> Option<Mbuf> {
+    let router_info = RouterInfo {
+      dest_ipv4:self.remote_ipv4,
+      dest_mac:self.remote_mac,
+      dest_port:self.remote_port,
+      src_mac:self.local_mac,
+      src_ipv4:self.local_ipv4,
+      src_port:self.local_port
+    };
+    
+    if self.state == TcpState::Closed {
+      return None;
+    }
+
+    // If we are still listening for SYNs and the packet has an ACK,
+    // it cannot be destined to this
+    if self.state == TcpState::Listen && repr.ack_number.is_some() {
+      return None;
+    }
+
+    let (sent_syn, sent_fin) = match self.state {
+      // In SYN-SENT or SYN-RECEIVED, we've just sent a SYN.
+      TcpState::SynSent | TcpState::SynReceived => (true, false),
+      // In FIN-WAIT-1, LAST-ACK, or CLOSING, we've just sent a FIN.
+      TcpState::FinWait1 | TcpState::LastAck | TcpState::Closing => (false, true),
+      // In all other states we've already got acknowledgemetns for
+      // all of the control flags we sent.
+      _ => (false, false),
+    };
+
+    let control_len = (sent_syn as usize) + (sent_fin as usize);
+
+    match (self.state, repr.ctrl, repr.ack_number) {
+      (TcpState::SynSent, TcpControl::Rst, None) => {
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: unacceptable RST (expecting RST|ACK)  \
+                                      in response to initial SYN",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port);
+        return None;
+      },
+      (TcpState::SynSent, TcpControl::Rst, Some(ack_number)) => {
+        if ack_number != self.local_seq_no + 1 {
+          log::log!(log::Level::Trace,
+            "tcp: `{}:{}` <==> `{}:{}`: unacceptable RST|ACK in response to initial SYN",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port);
+          return None;
+        }
+      },
+      // Any other RST need only have a valid sequence number.
+      (_, TcpControl::Rst, _) => (),
+      // The initial SYN cannot contain an acknowledgement.
+      (TcpState::Listen, _, None) => (),
+      // This case is handled in `accepts()`.
+      (TcpState::Listen, _, Some(_)) => unreachable!(),
+      // Every packet after the initial SYN must be an acknowledgement.
+      (_, _, None) => {
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: expecting an ACK",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port);
+        return None;
+      },
+      // SYN|ACK in the SYN-SENT state must have the exact ACK number.
+      (TcpState::SynSent, TcpControl::Syn, Some(ack_number)) => {
+        if ack_number != self.local_seq_no + 1 {
+          log::log!(log::Level::Trace,
+            "tcp: `{}:{}` <==> `{}:{}`: expecting an ACK",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port);
+          
+          (self.builder)(&mut mbuf,&self.rst_reply(repr),&router_info);
+          return Some(mbuf);
+        }
+      },
+      // ACKs in the SYN-SENT state are invalid.
+      (TcpState::SynSent, TcpControl::None, Some(ack_number)) => {
+          // If the sequence number matches, ignore it instead of RSTing.
+          // I'm not sure why, I think it may be a workaround for broken TCP
+          // servers, or a defense against reordering. Either way, if Linux
+          // does it, we do too.
+        if ack_number == self.local_seq_no + 1 {
+          log::log!(log::Level::Trace,
+            "tcp: `{}:{}` <==> `{}:{}`: expecting a SYN|ACK, \
+                                        received an ACK with the \
+                                        right ack_number, ignoring.",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port);
+          return None;
+        }
+
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: expecting a SYN|ACK, \
+                                      received an ACK with the wrong \
+                                      ack_number, sending RST.",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port);
+        
+        (self.builder)(&mut mbuf,&self.rst_reply(repr),&router_info);
+        return Some(mbuf);
+      },
+      // Anything else in the SYN-SENT state is invalid.
+      (TcpState::SynSent, _, _) => {
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: expecting a SYN|ACK",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port);
+        return None;
+      },
+      // ACK in the SYN-RECEIVED state must have the exact ACK number, or we RST it.
+      (TcpState::SynReceived, _, Some(ack_number)) => {
+        if ack_number != self.local_seq_no + 1 {
+          log::log!(log::Level::Trace,
+            "tcp: `{}:{}` <==> `{}:{}`: expecting a SYN|ACK",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port);
+
+          (self.builder)(&mut mbuf,&self.rst_reply(repr),&router_info);
+          return Some(mbuf);
+        }
+      },
+      // Every acknowledgement must be for transmitted but unacknowledged data.
+      (_, _, Some(ack_number)) => {
+        let unacknowledged = self.tx_buffer.len() + control_len;
+
+        // Acceptable ACK range (both inclusive)
+        let mut ack_min = self.local_seq_no;
+        let ack_max = self.local_seq_no + unacknowledged;
+
+        // If we have sent a SYN, it MUST be acknowledged.
+        if sent_syn {
+            ack_min += 1;
+        }
+
+        if ack_number < ack_min {
+          log::log!(log::Level::Trace,
+            "tcp: `{}:{}` <==> `{}:{}`: duplicate ACK ({} not in {}...{})",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port,
+          ack_number,
+          ack_min,
+          ack_max);      
+          return None;
+        }
+
+        if ack_number > ack_max {
+          log::log!(log::Level::Trace,
+            "tcp: `{}:{}` <==> `{}:{}`: unacceptable ACK ({} not in {}...{})",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port,
+          ack_number,
+          ack_min,
+          ack_max);
+          
+          if ts < self.challenge_ack_timer {
+            return None;
+          }
+          self.challenge_ack_timer = ts - Duration::from_secs(1);
+          (self.builder)(&mut mbuf,&self.ack_reply(repr),&router_info);
+          return Some(mbuf);
+        }
+      }
+    }
+
+    let window_start = self.remote_seq_no + self.rx_buffer.len();
+    let window_end = self.remote_seq_no + self.rx_buffer.cap();
+    let segment_start = repr.seq_number;
+    let ctrl_len = match repr.ctrl {
+      TcpControl::Fin | TcpControl::Syn => { assert_eq!(payload.len(),0); 1},
+      _ => 0
+    };
+    let segment_end = repr.seq_number + ctrl_len + payload.len();
+
+    let payload_offset;
+    
+    match self.state {
+      TcpState::Listen | TcpState::SynSent => payload_offset = 0,
+      _ => {
+        let mut segment_in_window = true;
+        if window_start == window_end && segment_start != segment_end {
+          log::log!(log::Level::Trace,
+            "tcp: `{}:{}` <==> `{}:{}`: non-zero-length segment with zero \
+                                        receive window, will only send an ACK",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port);
+
+          segment_in_window = false;
+        }
+
+        if segment_start == segment_end && segment_end == window_start - 1 {
+          log::log!(log::Level::Trace,
+            "tcp: `{}:{}` <==> `{}:{}`: received a keep-alive or window probe packet, \
+                                        will send an ACK",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port);
+          segment_in_window = false;
+        } else if !((window_start <= segment_start && segment_start <= window_end)
+        && (window_start <= segment_end && segment_end <= window_end))
+        {
+          log::log!(log::Level::Trace,
+            "tcp: `{}:{}` <==> `{}:{}`: segment not in receive window, \
+            ({}..{} not intersecting {}..{}), will send challenge ACK",
+          self.local_ipv4,
+          self.local_port,
+          self.remote_ipv4,
+          self.remote_port,
+          segment_start,
+          segment_end,
+          window_start,
+          window_end);
+
+          segment_in_window = false;
+        }
+
+        if segment_in_window {
+          payload_offset = (segment_start - window_start) as usize;
+          self.local_rx_last_seq = Some(repr.seq_number);
+        } else {
+          if self.state == TcpState::TimeWait {
+            self.timer.set_for_close(ts);
+          }
+
+          if ts < self.challenge_ack_timer {
+            return None;
+          }
+          self.challenge_ack_timer = ts - Duration::from_secs(1);
+          (self.builder)(&mut mbuf,&self.ack_reply(repr),&router_info);
+          return Some(mbuf);
+        }
+      }
+    }
+
+    let mut ack_len = 0;
+    let mut ack_of_fin = false;
+    if repr.ctrl != TcpControl::Rst {
+      if let Some(ack_number) = repr.ack_number {
+        // Sequence number corresponding to the first byte in `tx_buffer`.
+        // This normally equals `local_seq_no`, but is 1 higher if we ahve sent a SYN,
+        // as the SYN occupies 1 sequence number "before" the data.
+        let tx_buffer_start_seq = self.local_seq_no + (sent_syn as usize);
+
+        if ack_number >= tx_buffer_start_seq {
+          ack_len = ack_number - tx_buffer_start_seq;
+
+          // We could've sent data before the FIN, so only remove FIN from the sequence
+          // space if all of that data is acknowledged.
+          if sent_fin && self.tx_buffer.len() + 1 == ack_len {
+            ack_len -= 1;
+            
+            log::log!(log::Level::Trace,
+              "tcp: `{}:{}` <==> `{}:{}`: received ACK of FIN",
+            self.local_ipv4,
+            self.local_port,
+            self.remote_ipv4,
+            self.remote_port);
+
+            ack_of_fin = true;
+          }
+        }
+
+        self.rtte.on_ack(ts, ack_number);
+      }
+    }
+
+    let mut control = repr.ctrl;
+    control = control.quash_psh();
+
+    if control == TcpControl::Fin && window_start != segment_start {
+      control = TcpControl::None;
+    }
+
+    // Validate and update the state.
+    match (self.state, control) {
+      // RSTs are not accepted in the LISTEN state.
+      (TcpState::Listen, TcpControl::Rst) => return None,
+
+      (TcpState::SynReceived, TcpControl::Rst) => {
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: received RST",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port);
+        
+        self.set_state(TcpState::Listen);
+        return None;
+      }
+
+      // RSTs in any other state close the socket.
+      (_, TcpControl::Rst) => {
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: received RST",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port);
+
+        self.reset();
+        return None;
+      }
+
+      // SYN packets in the LISTEN state change it to SYN-RECEIVED.
+      (TcpState::Listen, TcpControl::Syn) => {
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: received SYN",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port);
+
+        if let Some(max_seg_size) = repr.max_seg_size {
+          if max_seg_size == 0 {
+            log::log!(log::Level::Trace,
+              "tcp: `{}:{}` <==> `{}:{}`: received SYNACK with zero MSS, ignoring",
+            self.local_ipv4,
+            self.local_port,
+            self.remote_ipv4,
+            self.remote_port);
+    
+            return None;
+          }
+          self.remote_mss = max_seg_size as usize
+        }
+
+        self.local_seq_no = self.random_seq_no();
+        self.remote_seq_no = repr.seq_number + 1;
+        self.remote_last_seq = self.local_seq_no;
+        self.remote_has_sack = repr.sack_permitted;
+        self.remote_win_scale = repr.window_scale;
+        // Remote doesn't support window scaling, don't do it.
+        if self.remote_win_scale.is_none() {
+            self.remote_win_shift = 0;
+        }
+        self.set_state(TcpState::SynReceived);
+        self.timer.set_for_idle(ts, self.keep_alive);
+      }
+
+      // ACK packets in the SYN-RECEIVED state change it to ESTABLISHED.
+      (TcpState::SynReceived, TcpControl::None) => {
+        self.set_state(TcpState::Established);
+        self.timer.set_for_idle(ts, self.keep_alive);
+      }
+
+      // FIN packets in the SYN-RECEIVED state change it to CLOSE-WAIT.
+      // It's not obvious from RFC 793 that this is permitted, but
+      // 7th and 8th steps in the "SEGMENT ARRIVES" event describe this behavior.
+      (TcpState::SynReceived, TcpControl::Fin) => {
+        self.remote_seq_no += 1;
+        self.rx_fin_received = true;
+        self.set_state(TcpState::CloseWait);
+        self.timer.set_for_idle(ts, self.keep_alive);
+      }
+
+      // SYN|ACK packets in the SYN-SENT state change it to ESTABLISHED.
+      (TcpState::SynSent, TcpControl::Syn) => {
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: received SYN|ACK",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port);
+          
+        if let Some(max_seg_size) = repr.max_seg_size {
+          if max_seg_size == 0 {
+            log::log!(log::Level::Trace,
+              "tcp: `{}:{}` <==> `{}:{}`: received SYNACK with zero MSS, ignoring",
+            self.local_ipv4,
+            self.local_port,
+            self.remote_ipv4,
+            self.remote_port);
+
+            return None;
+          }
+          self.remote_mss = max_seg_size as usize;
+        }
+
+        self.remote_seq_no = repr.seq_number + 1;
+        self.remote_last_seq = self.local_seq_no + 1;
+        self.remote_last_ack = Some(repr.seq_number);
+        self.remote_win_scale = repr.window_scale;
+        // Remote doesn't support window scaling, don't do it.
+        if self.remote_win_scale.is_none() {
+            self.remote_win_shift = 0;
+        }
+
+        self.set_state(TcpState::Established);
+        self.timer.set_for_idle(ts, self.keep_alive);
+      }
+
+      // ACK packets in ESTABLISHED state reset the retransmit timer,
+      // except for duplicate ACK packets which preserve it.
+      (TcpState::Established, TcpControl::None) => {
+        if !self.timer.is_retransmit() || ack_len != 0 {
+          self.timer.set_for_idle(ts, self.keep_alive);
+        }
+      }
+
+      // FIN packets in ESTABLISHED state indicate the remote side has closed.
+      (TcpState::Established, TcpControl::Fin) => {
+        self.remote_seq_no += 1;
+        self.rx_fin_received = true;
+        self.set_state(TcpState::CloseWait);
+        self.timer.set_for_idle(ts, self.keep_alive);
+      }
+
+      // ACK packets in FIN-WAIT-1 state change it to FIN-WAIT-2, if we've already
+      // sent everything in the transmit buffer. If not, they reset the retransmit timer.
+      (TcpState::FinWait1, TcpControl::None) => {
+        if ack_of_fin {
+            self.set_state(TcpState::FinWait2);
+        }
+        self.timer.set_for_idle(ts, self.keep_alive);
+      }
+
+      // FIN packets in FIN-WAIT-1 state change it to CLOSING, or to TIME-WAIT
+      // if they also acknowledge our FIN.
+      (TcpState::FinWait1, TcpControl::Fin) => {
+        self.remote_seq_no += 1;
+        self.rx_fin_received = true;
+        if ack_of_fin {
+          self.set_state(TcpState::TimeWait);
+          self.timer.set_for_close(ts);
+        } else {
+          self.set_state(TcpState::Closing);
+          self.timer.set_for_idle(ts, self.keep_alive);
+        }
+      }
+
+      // Data packets in FIN-WAIT-2 reset the idle timer.
+      (TcpState::FinWait2, TcpControl::None) => {
+        self.timer.set_for_idle(ts, self.keep_alive);
+      }
+
+      // FIN packets in FIN-WAIT-2 state change it to TIME-WAIT.
+      (TcpState::FinWait2, TcpControl::Fin) => {
+        self.remote_seq_no += 1;
+        self.rx_fin_received = true;
+        self.set_state(TcpState::TimeWait);
+        self.timer.set_for_close(ts);
+      }
+
+      // ACK packets in CLOSING state change it to TIME-WAIT.
+      (TcpState::Closing, TcpControl::None) => {
+        if ack_of_fin {
+          self.set_state(TcpState::TimeWait);
+          self.timer.set_for_close(ts);
+        } else {
+          self.timer.set_for_idle(ts, self.keep_alive);
+        }
+      }
+
+      // ACK packets in CLOSE-WAIT state reset the retransmit timer.
+      (TcpState::CloseWait, TcpControl::None) => {
+        self.timer.set_for_idle(ts, self.keep_alive);
+      }
+
+      // ACK packets in LAST-ACK state change it to CLOSED.
+      (TcpState::LastAck, TcpControl::None) => {
+        if ack_of_fin {
+          // Clear the remote endpoint, or we'll send an RST there.
+          self.set_state(TcpState::Closed);
+        } else {
+          self.timer.set_for_idle(ts, self.keep_alive);
+        }
+      }
+
+      _ => {
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: unexpected packet {}",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port,
+        repr);
+        return None;
+      }
+    }
+
+    self.remote_last_ts = Some(ts);
+
+    //RFC 1323
+    let scale = match repr.ctrl {
+      TcpControl::Syn => 0,
+      _ => self.remote_win_scale.unwrap_or(0),
+    };
+
+    self.remote_win_len = (repr.window_len as usize) << (scale as usize);
+
+    if ack_len > 0 {
+      // Dequeue acknowledged octets.
+      debug_assert!(self.tx_buffer.len() >= ack_len);
+      log::log!(log::Level::Trace,
+        "tcp: `{}:{}` <==> `{}:{}`: tx buffer: dequeueing {} octets (now {})",
+      self.local_ipv4,
+      self.local_port,
+      self.remote_ipv4,
+      self.remote_port,
+      ack_len,
+      self.tx_buffer.len() - ack_len);
+
+      self.tx_buffer.dequeue_allocated(ack_len);
+    }
+
+    if let Some(ack_number) = repr.ack_number {
+      // TODO: When flow control is implemented,
+      // refractor the following block within that implementation
+
+      // Detect and react to duplicate ACKs by:
+      // 1. Check if duplicate ACK and change self.local_rx_dup_acks accordingly
+      // 2. If exactly 3 duplicate ACKs recived, set for fast retransmit
+      // 3. Update the last received ACK (self.local_rx_last_ack)
+      match self.local_rx_last_ack {
+        // Duplicate ACK if payload empty and ACK doesn't move send window ->
+        // Increment duplicate ACK count and set for retransmit if we just recived
+        // the third duplicate ACK
+        Some(ref last_rx_ack)
+          if payload.len() == 0
+            && *last_rx_ack == ack_number
+            && ack_number < self.remote_last_seq =>
+          {
+            // Increment duplicate ACK count
+            self.local_rx_dup_acks = self.local_rx_dup_acks.saturating_add(1);
+
+            log::log!(log::Level::Trace,
+              "tcp: `{}:{}` <==> `{}:{}`: received duplicate ACK for seq {} (duplicate nr {}{})",
+            self.local_ipv4,
+            self.local_port,
+            self.remote_ipv4,
+            self.remote_port,
+            ack_number,
+            self.local_rx_dup_acks,
+            if self.local_rx_dup_acks == u8::max_value() {
+              "+"
+            } else {
+              ""
+            });
+
+            if self.local_rx_dup_acks == 3 {
+              self.timer.set_for_fast_retransmit();
+
+              log::log!(log::Level::Trace,
+                "tcp: `{}:{}` <==> `{}:{}`: started fast retransmit",
+              self.local_ipv4,
+              self.local_port,
+              self.remote_ipv4,
+              self.remote_port);
+            }
+          }
+          // No duplicate ACK -> Reset state and update last recived ACK
+        _ => {
+          if self.local_rx_dup_acks > 0 {
+            self.local_rx_dup_acks = 0;
+            log::log!(log::Level::Trace,
+              "tcp: `{}:{}` <==> `{}:{}`: reset duplicate ACK count",
+            self.local_ipv4,
+            self.local_port,
+            self.remote_ipv4,
+            self.remote_port);
+          }
+          self.local_rx_last_ack = Some(ack_number);
+        }
+      };
+    
+      // We've processed everything in the incoming segment, so advance the local
+      // sequence number past it.
+      self.local_seq_no = ack_number;
+      // During retransmission, if an earlier segment got lost but later was
+      // successfully received, self.local_seq_no can move past self.remote_last_seq.
+      // Do not attempt to retransmit the latter segments; not only this is pointless
+      // in theory but also impossible in practice, since they have been already
+      // deallocated from the buffer.
+      if self.remote_last_seq < self.local_seq_no {
+        self.remote_last_seq = self.local_seq_no
+      }
+    } // end if
+
+    let payload_len = payload.len();
+    
+    if payload_len == 0 {
+        return None;
+    }
+
+    let assembler_was_empty = self.assembler.is_empty();
+
+    match self.assembler.add(payload_offset, payload_len) {
+      Ok(_) => {
+        debug_assert!(self.assembler.total_size() == self.rx_buffer.cap());
+        let size = self.rx_buffer.write_unallocated(payload_offset, payload);
+        debug_assert!(size == payload_len);
+      },
+      Err(_) => {
+        log::log!(log::Level::Trace,
+          "tcp: `{}:{}` <==> `{}:{}`: assembler: too many holes to add {} octets at offset {}",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port,
+        payload_len,
+        payload_offset);
+
+        return None;
+      }
+    }
+
+    if let Some(contig_len) = self.assembler.remove_front() {
+      debug_assert!(self.assembler.total_size() == self.rx_buffer.cap());
+      log::log!(log::Level::Trace,
+        "tcp: `{}:{}` <==> `{}:{}`: rx buffer: enqueueing {} octets (now {})",
+      self.local_ipv4,
+      self.local_port,
+      self.remote_ipv4,
+      self.remote_port,
+      contig_len,
+      self.rx_buffer.len() + contig_len);
+
+      self.rx_buffer.enqueue_unallocated(contig_len);
+    }
+
+    if !self.assembler.is_empty() {
+      log::log!(log::Level::Trace,
+        "tcp: `{}:{}` <==> `{}:{}`: assembler: {}",
+      self.local_ipv4,
+      self.local_port,
+      self.remote_ipv4,
+      self.remote_port,
+      self.assembler);
+    }
+
+    // Handle delayed acks
+    if let Some(ack_delay) = self.ack_delay {
+      if self.ack_to_transmit() || self.window_to_udpate() {
+        self.ack_delay_timer = match self.ack_delay_timer {
+          AckDelayTimer::Idle => {
+            log::log!(log::Level::Trace,
+              "tcp: `{}:{}` <==> `{}:{}`: starting delayed ack timer",
+            self.local_ipv4,
+            self.local_port,
+            self.remote_ipv4,
+            self.remote_port);
+
+            AckDelayTimer::Waiting(ts + ack_delay)
+          }
+          // RFC1122 says "in a stream of full-sized segments there SHOULD be an ACK
+          // for at least every second segment".
+          // For now, we send an ACK every second received packet, full-sized or not.
+          AckDelayTimer::Waiting(_) => {
+            log::log!(log::Level::Trace,
+              "tcp: `{}:{}` <==> `{}:{}`: delayed ack timer already started, forcing expiry",
+            self.local_ipv4,
+            self.local_port,
+            self.remote_ipv4,
+            self.remote_port);
+            
+            AckDelayTimer::Immediate
+          }
+          
+          AckDelayTimer::Immediate => {
+            log::log!(log::Level::Trace,
+              "tcp: `{}:{}` <==> `{}:{}`: delayed ack timer already force-expired",
+            self.local_ipv4,
+            self.local_port,
+            self.remote_ipv4,
+            self.remote_port);
+
+            AckDelayTimer::Immediate
+          }
+        };
+      }
+    } // enf if
+
+    // Per RFC 5681, we should send an immediate ACK when either:
+    //  1) an out-of-order segment is received, or
+    //  2) a segment arrives that fills in all or part of a gap in sequence space.
+    if !self.assembler.is_empty() || !assembler_was_empty {
+      // Note that we change the transmitter state here.
+      // This is fine because smoltcp assumes that it can always transmit zero or one
+      // packets for every packet it receives.
+      log::log!(log::Level::Trace,
+        "tcp: `{}:{}` <==> `{}:{}`: ACKing incoming segment",
+      self.local_ipv4,
+      self.local_port,
+      self.remote_ipv4,
+      self.remote_port);
+      
+      (self.builder)(&mut mbuf,&self.ack_reply(&repr),&router_info);
+      return Some(mbuf);
+    } else {
+      None
+    }
+  } 
 }
 
 impl <P,C,PACKETBUILDER,PACKETPARSER> 
@@ -550,7 +1355,7 @@ where
   P: Producer,
   C: Consumer,
   PACKETBUILDER: Fn(&mut Mbuf,&TcpRepr,&RouterInfo),
-  PACKETPARSER: Fn(&mut Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>, 
+  PACKETPARSER: Fn(&Mbuf) ->Option<(TcpRepr,RouterInfo,&[u8])>, 
 {
   fn is_close(&self)-> bool {
     self.local_port == 0  
@@ -560,7 +1365,7 @@ where
   where
     F:FnOnce(Mbuf) -> bool {
     self.pull_data_from_producer();
-    self.fill_mbuf(pkt,ts,emit);
+    self.build(pkt,ts,emit);
   }
   
   fn has_data(&mut self,ts:run_time::Instant) -> bool {
@@ -657,17 +1462,53 @@ where
     return true;
   }
   
-  fn on_recv(&mut self,mut mbuf:Mbuf,ts:run_time::Instant) -> Option<Mbuf> {
-    if let Some(
-      (repr,
-      router_info,
-      payload)
-    ) = (self.parser)(&mut mbuf) {
-      
-      todo!()
-    } else {
+  fn on_recv(&mut self,mut mbuf:Mbuf,ts:Instant) -> Option<Mbuf> {
+    self.push_data_to_consumer();
+
+    let (repr,router_info,payload) = (self.parser)(&mbuf)?;
+    if router_info.dest_mac != self.local_mac {
+      log::log!(log::Level::Trace,
+        "tcp: `{}:{}` <==> `{}:{}`: dest mac address `{}` is not accepted",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port,
+        router_info.dest_mac);
       return None;
     }
+
+    if router_info.src_mac != self.remote_mac {
+      log::log!(log::Level::Trace,
+        "tcp: `{}:{}` <==> `{}:{}`: src mac address `{}` is not accepted",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port,
+        router_info.src_mac);
+      return None;
+    }
+
+    if router_info.src_ipv4 != self.remote_ipv4 {
+      log::log!(log::Level::Trace,
+        "tcp: `{}:{}` <==> `{}:{}`: src ipv4 address `{}` is not accepted",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port,
+        router_info.src_ipv4);
+      return None;
+    }
+      
+    if router_info.dest_ipv4 != self.local_ipv4 {
+      log::log!(log::Level::Trace,
+        "tcp: `{}:{}` <==> `{}:{}`: dest ipv4 address `{}` is not accepted",
+        self.local_ipv4,
+        self.local_port,
+        self.remote_ipv4,
+        self.remote_port,
+        router_info.dest_ipv4);
+    }
+    return self.process(ts,mbuf,&repr,&payload);
   }
 }
 
