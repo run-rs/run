@@ -13,12 +13,21 @@ use super::port::*;
 
 pub(crate) static SERVICE: OnceCell<DpdkService> = OnceCell::new();
 
-pub struct DpdkOption {}
+pub struct DpdkOption {
+    quiet:bool,
+}
 
 impl DpdkOption {
     /// Create a new EalOption.
     pub fn new() -> Self {
-        DpdkOption {}
+        DpdkOption {
+            quiet: false,
+        }
+    }
+
+    pub fn enable_quiet(mut self) -> Self {
+        self.quiet = true;
+        self
     }
 
     pub fn init(self) -> Result<()> {
@@ -32,6 +41,10 @@ impl DpdkOption {
             args.push(CString::new("--proc-type").unwrap());
             args.push(CString::new("primary").unwrap());
 
+            if self.quiet {
+                args.push(CString::new("--log-level").unwrap());
+                args.push(CString::new("error").unwrap());
+            }
             // let potential errors panic early
             let lcores = lcore::detect_lcores();
 
