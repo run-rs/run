@@ -4,8 +4,10 @@ mod assembler;
 mod rand;
 pub mod stack;
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 pub use device::DpdkDevice;
-pub use device::DpdkDeviceHelper;
 
 
 pub trait Device {
@@ -48,11 +50,8 @@ pub trait Consumer {
 }
 
 
-pub fn poll<S:Stack,P:Device>(dev:&mut P,stack:&mut S) {
-  loop {
-    if stack.is_close() {
-      break;
-    }
+pub fn poll<S:Stack,P:Device>(run: Arc<AtomicBool>, dev:&mut P,stack:&mut S) {
+  while run.load(std::sync::atomic::Ordering::Relaxed) {
     let ts = run_time::Instant::now();
     if let Some(mut pkt) = dev.recv() {
       if let Some(response) = stack.on_recv(pkt, ts) {
@@ -69,14 +68,11 @@ pub fn poll<S:Stack,P:Device>(dev:&mut P,stack:&mut S) {
   }
 }
 
-pub fn poll_in_batch<S,P,const N:usize>(dev:&mut P,stack:&mut S) 
+pub fn poll_in_batch<S,P,const N:usize>(run: Arc<AtomicBool>,dev:&mut P,stack:&mut S) 
 where 
   S: Stack,
   P: Batch + Device {
-  loop {
-    if stack.is_close() {
-      break;
-    }
+  while run.load(std::sync::atomic::Ordering::Relaxed) {
     let ts = run_time::Instant::now();
     let mut recv_batch:arrayvec::ArrayVec<run_dpdk::Mbuf,N> = 
                                                     arrayvec::ArrayVec::new();

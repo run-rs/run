@@ -1,33 +1,24 @@
 mod common;
 
-use std::{str::FromStr};
+use std::{str::FromStr, sync::{Arc, atomic::{AtomicBool, AtomicI64}}, time::Duration, io::Write};
 
 use clap::Parser;
 
-use common::stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber, self}};
+use common::stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber}};
 use run_dpdk::Pbuf;
-use run_packet::{tcp::{TcpHeader,TcpPacket, TcpOption}, ipv4::{Ipv4Packet, IpProtocol, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN, Ipv4Addr}, ether::{EtherPacket, MacAddr, EtherType, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, PktMut, Buf};
+use run_packet::{tcp::{TcpPacket, TcpOption}, ipv4::{Ipv4Packet, IpProtocol, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN, Ipv4Addr}, ether::{EtherPacket, MacAddr, EtherType, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, PktMut, Buf};
 
 
 #[derive(Parser)]
 struct Flags {
-  /* #[clap(long = "rx_buf_size",default_value_t = 8192)]
-  pub rx_buffer:u32,
-  #[clap(long = "tx_buf_size",default_value_t = 8192)]
-  pub tx_buffer:u32,
-  #[clap(long = "bind", required = true)]
-  pub bind:String,
-  #[clap(long = "connect")]
-  pub connect:Option<String>,
-  #[clap(long = "mac",required = true)]
-  pub mac:String */
-
+  #[clap(short, long, default_value_t = 10)]
+  pub period:u32,
   #[clap(short, long)]
   pub client:bool
 }
 
 struct Sender {
-  pub sent_bytes:u64,
+  pub sent_bytes:Arc<AtomicI64>,
   pub data:String,
   write_at:usize,
   len: usize,
@@ -263,7 +254,7 @@ impl Sender {
       and learning new topics").unwrap();
     let len = data.len();
     Sender {
-      sent_bytes: 0,
+      sent_bytes: Arc::new(AtomicI64::new(0)),
       data: data,
       write_at:0,
       len: len
@@ -273,14 +264,10 @@ impl Sender {
 
 impl common::Producer for Sender {
   fn produce(&mut self,size:usize) -> Option<&[u8]> {
-    let max_sent_bytes = 400000000000; // 400Gb 
-    if self.sent_bytes > max_sent_bytes {
-      return None;
-    }
     self.write_at %= self.len;
     let remaining_len = self.len - self.write_at;
     let sent_util = std::cmp::min(remaining_len,size) + self.write_at;
-    self.sent_bytes += (sent_util - self.write_at) as u64;
+    self.sent_bytes.fetch_add((sent_util - self.write_at) as i64, std::sync::atomic::Ordering::Relaxed);
     log::log!(log::Level::Trace,"Sender: produce {} bytes",sent_util - self.write_at);
     return Some(&self.data.as_bytes()[self.write_at..sent_util]);
   }
@@ -288,14 +275,14 @@ impl common::Producer for Sender {
 
 
 struct Receiver {
-  pub recv_bytes:u64,
+  pub recv_bytes:Arc<AtomicI64>,
   pub buffer: Vec<u8>,
 }
 
 impl Receiver {
   pub fn new(size:usize) -> Self {
     Receiver { 
-      recv_bytes: 0, 
+      recv_bytes: Arc::new(AtomicI64::new(0)), 
       buffer: vec![0;size] }
   }
 }
@@ -304,7 +291,7 @@ impl common::Consumer for Receiver {
   fn consume(&mut self,size:usize) -> &mut [u8] {
     assert!(self.buffer.len() > size);
     log::log!(log::Level::Trace,"Receiver: consume {} bytes",size);
-    self.recv_bytes += size as u64;
+    self.recv_bytes.fetch_add(size as i64, std::sync::atomic::Ordering::Relaxed);
     return &mut self.buffer[..size];
   }
 }
@@ -346,7 +333,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     unsafe { mbuf.extend_front(total_header_overhead) };
     let mut pbuf = run_dpdk::Pbuf::new(mbuf);
     pbuf.advance(total_header_overhead);
-    
+
     println!("pbuf chunk headroom {}",pbuf.chunk_headroom());
     println!("pbuf data room {}",pbuf.remaining());
 
@@ -482,8 +469,74 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
 fn server_start(args:&Flags) {
   let sender = Sender::new();
   let recver = Receiver::new(9000);
+
+  let sent_bytes = sender.sent_bytes.clone();
+  let recv_bytes = recver.recv_bytes.clone();
+  
+  let run = Arc::new(AtomicBool::new(true));
+  let run_clone = run.clone();
+  let run_ctrlc = run.clone();
+  let mut max_secs = args.period;
+
+  ctrlc::set_handler(move || {
+    run_ctrlc.store(false, std::sync::atomic::Ordering::Relaxed);
+  })
+  .unwrap();
+
+  let jh = std::thread::spawn(move || {
+    let mut last_sent_bytes = 0;
+    let mut last_recv_bytes = 0;
+    let mut file = match std::fs::File::create("./data/run_tcp.csv") {
+      Ok(f) => f,
+      Err(err) => {
+        log::log!(log::Level::Error,"can not open `./data/run_tcp.csv`. \
+                please launch at top workspace. : {}",err);
+        run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+        return;
+      }
+    };
+    match file.write_all(b"rx bps(Gbps),tx bps(Gbps)") {
+      Err(err) => {
+        log::log!(log::Level::Error,"failed to write : {}",err);
+        run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+        return;
+      },
+      _ => (),
+    };
+    while run_clone.load(std::sync::atomic::Ordering::Relaxed) {
+      if max_secs == 0 {
+        break;
+      }
+      std::thread::sleep(Duration::from_secs(1));
+      // write to csv file
+      let sent_total = sent_bytes.load(std::sync::atomic::Ordering::Relaxed);
+      let recv_total = recv_bytes.load(std::sync::atomic::Ordering::Relaxed);
+      let sent_diff = sent_total - last_sent_bytes;
+      let recv_diff = recv_total - last_recv_bytes;
+      last_recv_bytes = recv_total;
+      last_sent_bytes = sent_total;
+
+      assert!(sent_diff >= 0 );
+      assert!(recv_diff >= 0 );
+
+      let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
+      let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
+
+      match file.write_all(format!("{},{}",rx_bps,tx_bps).as_bytes()) {
+        Ok(_) => (),
+        Err(err) => {
+          log::log!(log::Level::Error,"failed to write : {}",err);
+          break;
+        }
+      }
+      max_secs -= 1;
+    }
+    run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+  });
+
+
   let processer = RunTcpPacketProcesser{};
-  let mut device = common::DpdkDeviceHelper::build(SERVER_PORT_ID).unwrap();
+  let mut device = common::DpdkDevice::new(SERVER_PORT_ID).unwrap();
   let mut stack = common::stack::tcp::TcpStack::new(
     sender, recver, 
     processer, 
@@ -493,14 +546,80 @@ fn server_start(args:&Flags) {
   stack.set_mtu(1518);
   stack.bind(SERVER_LOCAL_IPV4, SERVER_PORT, SERVER_LOCAL_MAC);
   stack.listen(SERVER_REMOTE_IPV4, CLIENT_PORT, SERVER_REMOTE_MAC);
-  common::poll(&mut device, &mut stack)
+  common::poll(run,&mut device, &mut stack);
+  jh.join().unwrap();
 }
 
 fn client_start(args:&Flags) {
   let sender = Sender::new();
   let recver = Receiver::new(9000);
+
+  let sent_bytes = sender.sent_bytes.clone();
+  let recv_bytes = recver.recv_bytes.clone();
+  
+  let run = Arc::new(AtomicBool::new(true));
+  let run_clone = run.clone();
+  let run_ctrlc = run.clone();
+  let mut max_secs = args.period;
+
+  ctrlc::set_handler(move || {
+    run_ctrlc.store(false, std::sync::atomic::Ordering::Relaxed);
+  })
+  .unwrap();
+
+  let jh = std::thread::spawn(move || {
+    let mut last_sent_bytes = 0;
+    let mut last_recv_bytes = 0;
+    let mut file = match std::fs::File::create("./data/run_tcp.csv") {
+      Ok(f) => f,
+      Err(err) => {
+        log::log!(log::Level::Error,"can not open `./data/run_tcp.csv`. \
+                please launch at top workspace. : {}",err);
+        run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+        return;
+      }
+    };
+    match file.write_all(b"rx bps(Gbps),tx bps(Gbps)") {
+      Err(err) => {
+        log::log!(log::Level::Error,"failed to write : {}",err);
+        run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+        return;
+      },
+      _ => (),
+    };
+    while run_clone.load(std::sync::atomic::Ordering::Relaxed) {
+      if max_secs == 0 {
+        break;
+      }
+      std::thread::sleep(Duration::from_secs(1));
+      // write to csv file
+      let sent_total = sent_bytes.load(std::sync::atomic::Ordering::Relaxed);
+      let recv_total = recv_bytes.load(std::sync::atomic::Ordering::Relaxed);
+      let sent_diff = sent_total - last_sent_bytes;
+      let recv_diff = recv_total - last_recv_bytes;
+      last_recv_bytes = recv_total;
+      last_sent_bytes = sent_total;
+
+      assert!(sent_diff >= 0 );
+      assert!(recv_diff >= 0 );
+
+      let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
+      let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
+
+      match file.write_all(format!("{},{}",rx_bps,tx_bps).as_bytes()) {
+        Ok(_) => (),
+        Err(err) => {
+          log::log!(log::Level::Error,"failed to write : {}",err);
+          break;
+        }
+      }
+      max_secs -= 1;
+    }
+    run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+  });
+
   let processer = RunTcpPacketProcesser{};
-  let mut device = common::DpdkDeviceHelper::build(CLIENT_PORT_ID).unwrap();
+  let mut device = common::DpdkDevice::new(CLIENT_PORT_ID).unwrap();
   let mut stack = common::stack::tcp::TcpStack::new(
     sender, recver, 
     processer, 
@@ -510,7 +629,9 @@ fn client_start(args:&Flags) {
   stack.set_mtu(1518);
   stack.bind(CLINET_LOCAL_IPV4, CLIENT_PORT, CLIENT_LOCAL_MAC);
   stack.connect(CLIENT_REMOTE_IPV4, SERVER_PORT, CLIENT_REMOTE_MAC);
-  common::poll(&mut device, &mut stack)
+  common::poll(run,&mut device, &mut stack);
+
+  jh.join().unwrap();
 }
 
 const CLIENT_PORT_ID:u16 = 3;
