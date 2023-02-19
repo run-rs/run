@@ -344,6 +344,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     tcppkt.set_seq_number(repr.seq_number.0 as u32);
     let ack = repr.ack_number.unwrap_or_default().0 as u32;
     tcppkt.set_ack_number(ack);
+    //println!("set window length: {}",repr.window_len);
     tcppkt.set_window_size(repr.window_len);
     match repr.ctrl {
       common::stack::tcp::TcpControl::None => (),
@@ -401,8 +402,6 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     let mut route_info:RouterInfo = RouterInfo::default();
     let mut tcprepr:TcpRepr = TcpRepr::default();
     
-    log::log!(log::Level::Trace,"received a raw packet {} bytes",mbuf.len());
-
     let pbuf = Pbuf::new(mbuf);
     let ethpkt = EtherPacket::parse(pbuf).ok()?;
     if ethpkt.ethertype() != EtherType::IPV4 {
@@ -436,7 +435,9 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       true => Some(TcpSeqNumber(tcppkt.ack_number() as i32)),
       false => None,
     };
-
+    
+    tcprepr.seq_number = TcpSeqNumber(tcppkt.seq_number() as i32);
+    tcprepr.window_len = tcppkt.window_size();
     tcprepr.max_seg_size = None;
     tcprepr.window_scale = None;
     tcprepr.sack_permitted = false;
@@ -466,7 +467,6 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       }
       options = next_options;
     }
-
     Some((tcprepr,route_info,payload_offset))
   }
 }

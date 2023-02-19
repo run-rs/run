@@ -329,7 +329,7 @@ where
       sack_permitted:false,
       sack_ranges:[None,None,None],
     };
-
+    //println!("scaled window length: {}",self.scaled_window());
     let router_info = super::RouterInfo {
       dest_ipv4:self.remote_ipv4,
       dest_mac:self.remote_mac,
@@ -366,6 +366,9 @@ where
       | state::TcpState::LastAck => {
         // Right edge of window
         let win_right_edge = self.local_seq_no + self.remote_win_len;
+        //println!("local seq no : {}",self.local_seq_no);
+        //println!("remote win len : {}",self.remote_win_len);
+        //println!("remote last seq : {}",self.remote_last_seq);
 
         // Max amount of octets we're allowed to send according to the remote window
         let win_limit = if win_right_edge >= self.remote_last_seq {
@@ -388,12 +391,15 @@ where
                                      - run_packet::ether::ETHER_HEADER_LEN 
                                      - run_packet::tcp::TCP_HEADER_LEN 
                                      - run_packet::ipv4::IPV4_HEADER_LEN;
-
+        //println!("max_payload_len {}",max_payload_len);
         let size = win_limit
                                 .min(self.remote_mss)
                                 .min(max_payload_len);
+        //println!("remote mss: {}",self.remote_mss);
+        //println!("win limit: {}",win_limit);
+        //println!("max size: {}",size);
         let offset = self.remote_last_seq - self.local_seq_no;
-        
+        //println!("offset {}",offset);        
 
         // Actual size we're allowed to send. This can be limited by 2 factors:
         // 1. maximum size we're allowed to send
@@ -403,11 +409,11 @@ where
         } else {
           size.min(self.tx_buffer.len() - offset)
         };
+        //println!("tx_buffer len: {}",self.tx_buffer.len());
         // extend mbuf data
         unsafe {
           mbuf.extend(payload_len);
         }
-
         // fill data to mbuf
         let sent = self.tx_buffer.read_allocated(offset, &mut mbuf.data_mut());
         
@@ -1016,6 +1022,7 @@ where
     
             return None;
           }
+          //println!("update remote mss {}",max_seg_size);
           self.remote_mss = max_seg_size as usize
         }
 
@@ -1068,6 +1075,7 @@ where
 
             return None;
           }
+          //println!("update remote mss {}",max_seg_size);
           self.remote_mss = max_seg_size as usize;
         }
 
@@ -1171,7 +1179,7 @@ where
         repr);
         return None;
       }
-    }
+    } // end match
 
     self.remote_last_ts = Some(ts);
 
@@ -1180,9 +1188,10 @@ where
       tcp_ctrl::TcpControl::Syn => 0,
       _ => self.remote_win_scale.unwrap_or(0),
     };
-
+    //println!("update remote window length");
     self.remote_win_len = (repr.window_len as usize) << (scale as usize);
-
+    //println!("window len : {}",repr.window_len);
+    //println!("scale : {}",scale);
     if ack_len > 0 {
       // Dequeue acknowledged octets.
       debug_assert!(self.tx_buffer.len() >= ack_len);

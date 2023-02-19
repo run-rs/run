@@ -53,13 +53,14 @@ pub trait Consumer {
 pub fn poll<S:Stack,P:Device>(run: Arc<AtomicBool>, dev:&mut P,stack:&mut S) {
   while run.load(std::sync::atomic::Ordering::Relaxed) {
     let ts = run_time::Instant::now();
-    if let Some(mut pkt) = dev.recv() {
+    if let Some(pkt) = dev.recv() {
       if let Some(response) = stack.on_recv(pkt, ts) {
         dev.send(response);
       }
     }
     if stack.has_data(ts) {
-      if let Some(mut pkt) = dev.alloc() {
+      log::log!(log::Level::Trace,"stack has data to send");
+      if let Some(pkt) = dev.alloc() {
         stack.do_send(pkt,ts,|mbuf| {
           dev.send(mbuf).is_none()
         });
