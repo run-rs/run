@@ -13,6 +13,7 @@ update=false
 client=false
 trace=false
 period=10
+buffer_size = 9000
 
 while true; do
   case "$1" in
@@ -20,6 +21,7 @@ while true; do
   --client ) client=true;shift;;
   --trace ) trace=true;shift;; 
   --period ) shift; period=$1; shift;;
+  --buf_size ) shift; buffer_size=$1; shift;;
   -- ) break;;
   esac
 done
@@ -39,15 +41,15 @@ fi
 # launch run_tcp
 if $client ; then
   if $trace ; then
-    sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/run_tcp --client --period=$period
+    sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/run_tcp --client --period=$period --buf-size=$buffer_size
   else
-    sudo install/bin/run_tcp --client --period=$period
+    sudo install/bin/run_tcp --client --period=$period --buf-size=$buffer_size
   fi
 else
   if $trace ; then
-    sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/run_tcp --period=$period
+    sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/run_tcp --period=$period --buf-size=$buffer_size
   else
-    sudo install/bin/run_tcp --period=$period
+    sudo install/bin/run_tcp --period=$period --buf-size=$buffer_size
   fi
 fi
 

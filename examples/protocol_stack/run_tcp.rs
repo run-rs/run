@@ -14,7 +14,9 @@ struct Flags {
   #[clap(short, long, default_value_t = 10)]
   pub period:u32,
   #[clap(short, long)]
-  pub client:bool
+  pub client:bool,
+  #[clap(short,long="buf-size")]
+  pub buffer:u32,
 }
 
 struct Sender {
@@ -324,7 +326,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
           router_info:&common::stack::RouterInfo) {
     //println!("mbuf headroom: {}",mbuf.front_capacity());
     // build tcp packet
-    let payload_len = mbuf.len();
+    //let payload_len = mbuf.len();
     let mut tcpheader = run_packet::tcp::TCP_HEADER_TEMPLATE;
     let mut header_len = run_packet::tcp::TCP_HEADER_LEN;
     if repr.max_seg_size.is_some() {
@@ -519,7 +521,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
 
 fn server_start(args:&Flags) {
   let sender = SendNothing::new();
-  let recver = Receiver::new(9000);
+  let recver = Receiver::new(args.buffer as usize);
 
   let sent_bytes = sender.sent_bytes.clone();
   let recv_bytes = recver.recv_bytes.clone();
@@ -591,8 +593,8 @@ fn server_start(args:&Flags) {
   let mut stack = common::stack::tcp::TcpStack::new(
     sender, recver, 
     processer, 
-    9000, 
-    9000);
+    args.buffer as usize, 
+    64);
   
   stack.set_mtu(1518);
   stack.bind(SERVER_LOCAL_IPV4, SERVER_PORT, SERVER_LOCAL_MAC);
@@ -603,7 +605,7 @@ fn server_start(args:&Flags) {
 
 fn client_start(args:&Flags) {
   let sender = Sender::new();
-  let recver = Receiver::new(9000);
+  let recver = Receiver::new(64);
 
   let sent_bytes = sender.sent_bytes.clone();
   let recv_bytes = recver.recv_bytes.clone();
@@ -674,8 +676,8 @@ fn client_start(args:&Flags) {
   let mut stack = common::stack::tcp::TcpStack::new(
     sender, recver, 
     processer, 
-    9000, 
-    9000);
+    64, 
+    args.buffer as usize);
   
   stack.set_mtu(1518);
   stack.bind(CLINET_LOCAL_IPV4, CLIENT_PORT, CLIENT_LOCAL_MAC);
