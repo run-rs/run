@@ -343,6 +343,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     tcppkt.set_dst_port(router_info.dest_port);
     tcppkt.set_seq_number(repr.seq_number.0 as u32);
     let ack = repr.ack_number.unwrap_or_default().0 as u32;
+    println!("send a ack number {}",ack);
     tcppkt.set_ack_number(ack);
     //println!("set window length: {}",repr.window_len);
     tcppkt.set_window_size(repr.window_len);
@@ -432,7 +433,10 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       _ => return None,
     };
     tcprepr.ack_number = match tcppkt.ack() {
-      true => Some(TcpSeqNumber(tcppkt.ack_number() as i32)),
+      true => {
+        println!("received a ack number {}",tcppkt.ack_number());
+        Some(TcpSeqNumber(tcppkt.ack_number() as i32))
+      }
       false => None,
     };
     

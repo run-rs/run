@@ -1079,8 +1079,10 @@ where
           //println!("update remote mss {}",max_seg_size);
           self.remote_mss = max_seg_size as usize;
         }
-
+        
+        println!("received seq number: {}",repr.seq_number);
         self.remote_seq_no = repr.seq_number + 1;
+        println!("update remote req number to {}",self.remote_seq_no);
         self.remote_last_seq = self.local_seq_no + 1;
         self.remote_last_ack = Some(repr.seq_number);
         self.remote_win_scale = repr.window_scale;
