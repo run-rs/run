@@ -13,7 +13,7 @@ update=false
 client=false
 trace=false
 period=10
-buffer_size = 9000
+buffer_size=9000
 
 while true; do
   case "$1" in
