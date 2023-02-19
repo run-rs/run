@@ -211,8 +211,8 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
     let total_packet_len = ip_pkt.total_len() + common::ETHER_HEADER_LEN as u16;    
 
     let tcp_pkt = TcpPacket::new_checked(ip_pkt.payload()).ok()?;
-    if !tcp_pkt.verify_checksum(&Ipv4Address(route_info.dest_ipv4.0).into(), 
-                        &Ipv4Address(route_info.src_ipv4.0).into()) {
+    if !tcp_pkt.verify_checksum(&Ipv4Address(route_info.src_ipv4.0).into(), 
+                        &Ipv4Address(route_info.dest_ipv4.0).into()) {
         return None;
     }
     route_info.dest_port = tcp_pkt.dst_port();
