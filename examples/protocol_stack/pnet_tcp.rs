@@ -144,7 +144,7 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
     let mut tcp_pkt = MutableTcpPacket::new(ipv4_pkt.payload_mut()).unwrap();
     tcp_pkt.set_destination(router_info.dest_port);
     tcp_pkt.set_source(router_info.src_port);
-    tcp_pkt.set_data_offset(header_len as u8);
+    tcp_pkt.set_data_offset((header_len / 4) as u8);
     tcp_pkt.set_sequence(repr.seq_number.0 as u32);
     tcp_pkt.set_urgent_ptr(0);
         
