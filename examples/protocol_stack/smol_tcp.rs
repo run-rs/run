@@ -119,18 +119,12 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
     let payload_len = mbuf.len();
     unsafe { mbuf.extend_front(total_header_overhead) };
     
-    let mut epkt = match smoltcp::wire::EthernetFrame::new_checked(mbuf.data_mut()) {
-        Ok(pkt) => pkt,
-        Err(_) => return,
-    };
+    let mut epkt =  smoltcp::wire::EthernetFrame::new_unchecked(mbuf.data_mut()); 
     epkt.set_dst_addr(EthernetAddress(router_info.dest_mac.0));
     epkt.set_src_addr(EthernetAddress(router_info.src_mac.0));
     epkt.set_ethertype(EthernetProtocol::Ipv4);
 
-    let mut ipv4_pkt = match Ipv4Packet::new_checked(epkt.payload_mut()) {
-        Ok(pkt) => pkt,
-        Err(_) => return,
-    };
+    let mut ipv4_pkt =  Ipv4Packet::new_unchecked(epkt.payload_mut());
     ipv4_pkt.set_version(4);
     ipv4_pkt.set_header_len(common::IPV4_HEADER_LEN as u8);
     ipv4_pkt.set_dscp(0);
@@ -145,10 +139,7 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
     ipv4_pkt.set_dst_addr(Ipv4Address(router_info.dest_ipv4.0));
     ipv4_pkt.fill_checksum();
     
-    let mut tcp_pkt = match TcpPacket::new_checked(ipv4_pkt.payload_mut()) {
-        Ok(pkt) => pkt,
-        Err(err) => return,
-    };
+    let mut tcp_pkt = TcpPacket::new_unchecked(ipv4_pkt.payload_mut());
     tcp_pkt.set_dst_port(router_info.dest_port);
     tcp_pkt.set_src_port(router_info.src_port);
     tcp_pkt.set_header_len(header_len as u8);
@@ -302,10 +293,10 @@ fn server_start(args:&Flags) {
   let jh = std::thread::spawn(move || {
     let mut last_sent_bytes = 0;
     let mut last_recv_bytes = 0;
-    let mut file = match std::fs::File::create("./data/pnet_tcp.csv") {
+    let mut file = match std::fs::File::create("./data/smol_tcp.csv") {
       Ok(f) => f,
       Err(err) => {
-        log::log!(log::Level::Error,"can not open `./data/pnet_tcp.csv`. \
+        log::log!(log::Level::Error,"can not open `./data/smol_tcp.csv`. \
                 please launch at top workspace. : {}",err);
         run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
         return;
@@ -386,10 +377,10 @@ fn client_start(args:&Flags) {
   let jh = std::thread::spawn(move || {
     let mut last_sent_bytes = 0;
     let mut last_recv_bytes = 0;
-    let mut file = match std::fs::File::create("./data/pnet_tcp.csv") {
+    let mut file = match std::fs::File::create("./data/smol_tcp.csv") {
       Ok(f) => f,
       Err(err) => {
-        log::log!(log::Level::Error,"can not open `./data/pnet_tcp.csv`. \
+        log::log!(log::Level::Error,"can not open `./data/smol_tcp.csv`. \
                 please launch at top workspace. : {}",err);
         run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
         return;
