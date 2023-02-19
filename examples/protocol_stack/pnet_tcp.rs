@@ -1,6 +1,6 @@
 mod common;
 
-use std::{sync::{Arc, atomic::{AtomicBool, AtomicI64}}, time::Duration, io::Write};
+use std::{sync::{Arc, atomic::{AtomicBool, AtomicI64}}, time::Duration, io::Write, str::FromStr};
 
 use arrayvec::ArrayVec;
 use clap::Parser;
@@ -10,6 +10,7 @@ use common::{stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber}}, Prod
 use pnet::packet::{ipv4::*, MutablePacket, Packet};
 use pnet::packet::tcp::*;
 use pnet::packet::ethernet::*;
+use run_packet::Buf;
 
 #[derive(Parser)]
 struct Flags {
@@ -95,7 +96,7 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
   fn build(&mut self,mbuf:&mut run_dpdk::Mbuf,
           repr:&common::stack::tcp::TcpRepr,
           router_info:&common::stack::RouterInfo) {
-
+    
     let mut header_len = common::TCP_HEADER_LEN;
     if repr.max_seg_size.is_some() {
       header_len += 4;
@@ -120,17 +121,22 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
     let total_header_overhead = header_len + common::ETHER_HEADER_LEN + common::IPV4_HEADER_LEN;
     let payload_len = mbuf.len();
     unsafe { mbuf.extend_front(total_header_overhead) };
-    
+//    println!("mbuf length: header {} + payload {}",total_header_overhead,payload_len);    
     let mut epkt = pnet::packet::ethernet::MutableEthernetPacket::new(mbuf.data_mut()).unwrap();
     epkt.set_destination(router_info.dest_mac.0.into());
     epkt.set_source(router_info.src_mac.0.into());
     epkt.set_ethertype(EtherTypes::Ipv4);
+    
+//    println!("ethernet packet payload length:{}",epkt.payload().len());
+
     let mut ipv4_pkt = MutableIpv4Packet::new(epkt.payload_mut()).unwrap();
     ipv4_pkt.set_version(4);
-    ipv4_pkt.set_header_length(common::IPV4_HEADER_LEN as u8);
+    ipv4_pkt.set_header_length(5);
+//    println!("ipv4 packet header length:{}",ipv4_pkt.get_header_length());
     ipv4_pkt.set_dscp(0);
     ipv4_pkt.set_ecn(0);
     ipv4_pkt.set_total_length((common::IPV4_HEADER_LEN + header_len + payload_len) as u16);
+//    println!("ipv4 packet total length: {}",ipv4_pkt.get_total_length());
     ipv4_pkt.set_identification(0x5c65);
     // ipv4_pkt.clear_flags();
     ipv4_pkt.set_flags(0);
@@ -138,17 +144,21 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
     ipv4_pkt.set_ttl(64);
     ipv4_pkt.set_next_level_protocol(pnet::packet::ip::IpNextHeaderProtocols::Tcp);
     ipv4_pkt.set_source(router_info.src_ipv4.0.into());
-    assert_eq!(ipv4_pkt.get_source().octets(),router_info.src_ipv4.0);
+//    assert_eq!(ipv4_pkt.get_source().octets(),router_info.src_ipv4.0);
     ipv4_pkt.set_destination(router_info.dest_ipv4.0.into());
+    ipv4_pkt.set_checksum(0);
     let checksum = pnet::packet::ipv4::checksum(&ipv4_pkt.to_immutable());
     ipv4_pkt.set_checksum(checksum);
+    
+//    println!("ipv4 packet payload length:{}",ipv4_pkt.payload().len());
+
     let mut tcp_pkt = MutableTcpPacket::new(ipv4_pkt.payload_mut()).unwrap();
     tcp_pkt.set_destination(router_info.dest_port);
     tcp_pkt.set_source(router_info.src_port);
     tcp_pkt.set_data_offset(((header_len + 3) / 4) as u8);
     tcp_pkt.set_sequence(repr.seq_number.0 as u32);
     tcp_pkt.set_urgent_ptr(0);
-        
+    tcp_pkt.set_checksum(0);        
     let ack = repr.ack_number.unwrap_or_default().0 as u32;
     tcp_pkt.set_acknowledgement(ack);
     tcp_pkt.set_window(repr.window_len);
@@ -164,6 +174,7 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
       flags |= TcpFlags::ACK;
     }
     tcp_pkt.set_flags(flags);
+    
     {
       let mut options = tcp_pkt.get_options_raw_mut();
       if let Some(value) = repr.max_seg_size {
@@ -187,12 +198,57 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
         run_packet::tcp::TcpOption::EndOfList.build(options);
       }
     }
-
+  
     let checksum = ipv4_checksum(&tcp_pkt.to_immutable(), 
                                 &router_info.src_ipv4.0.into(),
                             &router_info.dest_ipv4.0.into());
     
     tcp_pkt.set_checksum(checksum);
+    println!("Send a packet: ");
+    println!(" ack number:{}",tcp_pkt.get_acknowledgement());
+    println!("  seq number:{}",tcp_pkt.get_sequence());
+    println!("  payload length:{}",tcp_pkt.payload().len());
+
+//    println!("tcp packet header length: {} {}",header_len,tcp_pkt.get_data_offset() * 4);
+//    println!("tcp packet payload length: {}",tcp_pkt.payload().len());
+//    {
+      //println!("Send a packet: ");
+  //    let pbuf = run_dpdk::Pbuf::new(mbuf);
+    //  let ethpkt = run_packet::ether::EtherPacket::parse(pbuf).unwrap();
+//      println!("  dest mac:{}",ethpkt.dest_mac());
+//      println!("  src mac:{}",ethpkt.source_mac());
+//      println!("  ethernet type: {}",match ethpkt.ethertype() {
+//        run_packet::ether::EtherType::IPV4 => "ipv4",
+//        _ => "unkown",
+//      });
+      //let payload = ethpkt.payload();
+      //println!("  ethernet payload length: {}",payload.remaining());
+      //assert_eq!(ethpkt.ethertype(),run_packet::ether::EtherType::IPV4);
+      //let ipv4pkt = /*match run_packet::ipv4::Ipv4Packet::parse(payload) {
+        //Ok(v) => v,
+        //Err(_) => {
+          //println!("bad ipv4 packet");
+          //return;
+        //}
+      //};*///run_packet::ipv4::Ipv4Packet::parse_unchecked(payload);
+     // println!("  src ipv4: {}",ipv4pkt.source_ip());
+     // println!("  dest ipv4: {}",ipv4pkt.dest_ip());
+     // println!("  protocol:{}",ipv4pkt.protocol());
+      //println!("  ipv4 header len:{}",ipv4pkt.header_len());
+      //println!("  ipv4 packet len:{}",ipv4pkt.packet_len());
+      //println!("  ipv4 checksum: {}",{if ipv4pkt.verify_checksum() {
+        //ipv4pkt.checksum().to_string()
+      //} else {
+       // String::from_str("Bad").unwrap()
+      //}});
+      //let tcppkt = run_packet::tcp::TcpPacket::parse(ipv4pkt.payload()).unwrap();
+      //println!("  src port:{}",tcppkt.src_port());
+      //println!("  dest port:{}",tcppkt.dst_port());
+      //println!("  header len:{}",tcppkt.header_len());
+      //println!("  ack number:{}",tcppkt.ack_number());
+      //println!("  window len:{}",tcppkt.window_size());
+      //println!("  seq number:{}",tcppkt.seq_number());
+    //}
 
   }
 
@@ -285,6 +341,16 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
       }
       options = next_options;
     }
+    println!("received a tcp packet:");
+    println!("  ack: {}",match tcprepr.ack_number {
+      Some(v) => v.0.to_string(),
+      _ => String::from_str("None").unwrap(),
+    });
+    println!("  seq number: {}",tcprepr.seq_number);
+    println!("  window size: {}",tcprepr.window_len);
+    println!("  header len: {}",tcp_pkt.get_data_offset());
+    println!("  payload len: {}",tcp_pkt.payload().len());
+    println!("  dest mac: {}",route_info.dest_ipv4);
     Some((tcprepr,route_info,payload_offset))
   }
 }
