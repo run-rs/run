@@ -19,13 +19,17 @@ impl Device for DpdkDevice {
   fn recv(&mut self)->Option<Mbuf> {
     if self.recv_batch.is_empty() {
       self.rxq.rx(&mut self.recv_batch);
+      self.recv_batch.reverse();
     }
-    self.recv_batch.swap_pop(0)
+    log::log!(log::Level::Trace,"dpdk device: received a packet");
+    self.recv_batch.pop()
   }
 
   fn send(&mut self,pkt:Mbuf) -> Option<Mbuf> {
     let mut batch = ArrayVec::<Mbuf,1>::new();
-    self.txq.tx(&mut batch);
+    batch.push(pkt);
+    let n = self.txq.tx(&mut batch);
+    log::log!(log::Level::Trace,"dpdk device: send {} packet",n);
     batch.pop()
   }
 }
