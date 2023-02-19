@@ -66,6 +66,12 @@ impl DpdkDevice {
 
 impl Drop for DpdkDevice {
   fn drop(&mut self) {
+    self.recv_batch.clear();
+    unsafe{
+      std::ptr::drop_in_place(&mut self.txq as *mut TxQueue);
+      std::ptr::drop_in_place(&mut self.rxq as *mut RxQueue);
+      std::ptr::drop_in_place(&mut self.mempool as *mut Mempool);
+    }
     service().port_close(self.port_id).unwrap();
     println!("port closed");
 

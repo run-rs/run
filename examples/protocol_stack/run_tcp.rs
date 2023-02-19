@@ -334,8 +334,8 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     let mut pbuf = run_dpdk::Pbuf::new(mbuf);
     pbuf.advance(total_header_overhead);
 
-    println!("pbuf chunk headroom {}",pbuf.chunk_headroom());
-    println!("pbuf data room {}",pbuf.remaining());
+    //println!("pbuf chunk headroom {}",pbuf.chunk_headroom());
+    //println!("pbuf data room {}",pbuf.remaining());
 
     tcpheader.set_header_len(header_len as u8);
     let mut tcppkt = TcpPacket::prepend_header(pbuf, &tcpheader);
@@ -495,7 +495,7 @@ fn server_start(args:&Flags) {
         return;
       }
     };
-    match file.write_all(b"rx bps(Gbps),tx bps(Gbps)") {
+    match file.write_all(b"rx bps(Gbps),tx bps(Gbps)\n") {
       Err(err) => {
         log::log!(log::Level::Error,"failed to write : {}",err);
         run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -522,7 +522,7 @@ fn server_start(args:&Flags) {
       let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
       let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
 
-      match file.write_all(format!("{},{}",rx_bps,tx_bps).as_bytes()) {
+      match file.write_all(format!("{},{}\n",rx_bps,tx_bps).as_bytes()) {
         Ok(_) => (),
         Err(err) => {
           log::log!(log::Level::Error,"failed to write : {}",err);
@@ -579,7 +579,7 @@ fn client_start(args:&Flags) {
         return;
       }
     };
-    match file.write_all(b"rx bps(Gbps),tx bps(Gbps)") {
+    match file.write_all(b"rx bps(Gbps),tx bps(Gbps)\n") {
       Err(err) => {
         log::log!(log::Level::Error,"failed to write : {}",err);
         run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -606,7 +606,7 @@ fn client_start(args:&Flags) {
       let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
       let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
 
-      match file.write_all(format!("{},{}",rx_bps,tx_bps).as_bytes()) {
+      match file.write_all(format!("{},{}\n",rx_bps,tx_bps).as_bytes()) {
         Ok(_) => (),
         Err(err) => {
           log::log!(log::Level::Error,"failed to write : {}",err);
