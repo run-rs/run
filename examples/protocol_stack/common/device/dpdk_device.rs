@@ -21,7 +21,6 @@ impl Device for DpdkDevice {
       self.rxq.rx(&mut self.recv_batch);
       self.recv_batch.reverse();
     }
-    log::log!(log::Level::Trace,"dpdk device: received a packet");
     self.recv_batch.pop()
   }
 
