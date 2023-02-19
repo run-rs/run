@@ -230,6 +230,7 @@ where
     let max_push_size = self.rx_buffer.len();
     let data = self.consumer.consume(max_push_size);
     let size = self.rx_buffer.dequeue_slice(data);
+    log::log!(log::Level::Trace,"update remote seq no {} to {}",self.remote_seq_no.0 as u32,self.remote_seq_no.0 as u32 +size as u32);
     self.remote_seq_no += size;
   }
 
@@ -330,6 +331,7 @@ where
       sack_permitted:false,
       sack_ranges:[None,None,None],
     };
+    log::log!(log::Level::Trace,"remote_seq_no:{} + rx_buffer len:{}",self.remote_seq_no,self.rx_buffer.len());
     //println!("scaled window length: {}",self.scaled_window());
     let router_info = super::RouterInfo {
       dest_ipv4:self.remote_ipv4,

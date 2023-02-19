@@ -204,10 +204,23 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
                             &router_info.dest_ipv4.0.into());
     
     tcp_pkt.set_checksum(checksum);
-    println!("Send a packet: ");
-    println!(" ack number:{}",tcp_pkt.get_acknowledgement());
+    /*println!("Send a packet: ");
+    println!("  ack number:{}",tcp_pkt.get_acknowledgement());
     println!("  seq number:{}",tcp_pkt.get_sequence());
     println!("  payload length:{}",tcp_pkt.payload().len());
+    println!("  flags:{}",{
+      let mut s = String::new();
+      if (flags&TcpFlags::ACK) != 0 {
+        s.push_str("ACK ");
+      }
+      if (flags&TcpFlags::SYN) !=0 {
+        s.push_str("SYN ")
+      }
+      if (flags&TcpFlags::FIN) !=0 {
+        s.push_str("FIN ")
+      }
+      s
+    });*/
 
 //    println!("tcp packet header length: {} {}",header_len,tcp_pkt.get_data_offset() * 4);
 //    println!("tcp packet payload length: {}",tcp_pkt.payload().len());
@@ -272,6 +285,8 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
     }
     route_info.dest_ipv4 = common::Ipv4Addr(ip_pkt.get_destination().octets());
     route_info.src_ipv4 = common::Ipv4Addr(ip_pkt.get_source().octets());
+
+    let total_packet_len = ip_pkt.get_total_length() + common::ETHER_HEADER_LEN as u16;    
 
     let tcp_pkt = TcpPacket::new(ip_pkt.payload())?;
     let checksum = tcp_pkt.get_checksum();
@@ -341,16 +356,32 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
       }
       options = next_options;
     }
-    println!("received a tcp packet:");
+    /*println!("received a tcp packet:");
     println!("  ack: {}",match tcprepr.ack_number {
       Some(v) => v.0.to_string(),
       _ => String::from_str("None").unwrap(),
     });
-    println!("  seq number: {}",tcprepr.seq_number);
+    println!("  seq number: {}",tcprepr.seq_number.0 as u32);
     println!("  window size: {}",tcprepr.window_len);
     println!("  header len: {}",tcp_pkt.get_data_offset());
     println!("  payload len: {}",tcp_pkt.payload().len());
-    println!("  dest mac: {}",route_info.dest_ipv4);
+    println!("  mbuf data:{}",mbuf.len());
+    println!("  total header:{}",tcp_pkt.get_data_offset() as usize *4 as usize + common::IPV4_HEADER_LEN + common::ETHER_HEADER_LEN);
+    println!("  flags:{}",{
+      let mut s = String::new();
+      if (flags&TcpFlags::ACK) != 0 {
+        s.push_str("ACK ");
+      }
+      if (flags&TcpFlags::SYN) !=0 {
+        s.push_str("SYN ")
+      }
+      if (flags&TcpFlags::FIN) !=0 {
+        s.push_str("FIN ")
+      }
+      s
+    });*/
+
+    mbuf.truncate(total_packet_len as usize);
     Some((tcprepr,route_info,payload_offset))
   }
 }
