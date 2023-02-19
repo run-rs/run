@@ -743,7 +743,8 @@ where
           self.local_port,
           self.remote_ipv4,
           self.remote_port);
-          
+
+          mbuf.truncate(0);   
           self.packet_processer.build(&mut mbuf,&self.rst_reply(repr),&router_info);
           return Some(mbuf);
         }
@@ -778,6 +779,7 @@ where
         self.remote_ipv4,
         self.remote_port);
         
+        mbuf.truncate(0);
         self.packet_processer.build(&mut mbuf,
                                 &self.rst_reply(repr),&router_info);
         return Some(mbuf);
@@ -802,6 +804,7 @@ where
           self.remote_ipv4,
           self.remote_port);
 
+          mbuf.truncate(0);
           self.packet_processer.build(&mut mbuf,
                             &self.rst_reply(repr),&router_info);
           return Some(mbuf);
@@ -851,6 +854,7 @@ where
           let reply = {
             self.ack_reply(repr)
           };
+          mbuf.truncate(0);
           self.packet_processer.build(&mut mbuf,&reply,&router_info);
           return Some(mbuf);
         }
@@ -927,6 +931,7 @@ where
           }
           self.challenge_ack_timer = ts - smoltcp::time::Duration::from_secs(1);
           let reply = self.ack_reply(repr);
+          mbuf.truncate(0);
           self.packet_processer.build(&mut mbuf,&reply,&router_info);
           return Some(mbuf);
         }
@@ -1392,6 +1397,7 @@ where
       self.remote_port);
       
       let reply = self.ack_reply(&repr);
+      mbuf.truncate(0);
       self.packet_processer.build(&mut mbuf,&reply,&router_info);
       return Some(mbuf);
     } else {
