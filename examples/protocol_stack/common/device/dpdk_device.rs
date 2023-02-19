@@ -28,7 +28,7 @@ impl Device for DpdkDevice {
     let mut batch = ArrayVec::<Mbuf,1>::new();
     batch.push(pkt);
     let n = self.txq.tx(&mut batch);
-    log::log!(log::Level::Trace,"dpdk device: send {} packet",n);
+    //log::log!(log::Level::Trace,"dpdk device: send {} packet",n);
     batch.pop()
   }
 }

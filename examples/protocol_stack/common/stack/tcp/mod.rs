@@ -398,7 +398,7 @@ where
         // Actual size we're allowed to send. This can be limited by 2 factors:
         // 1. maximum size we're allowed to send
         // 2. the remaining data size in tx buffer
-        let payload_len = if offset < self.tx_buffer.len() {
+        let payload_len = if offset >= self.tx_buffer.len() {
           0
         } else {
           size.min(self.tx_buffer.len() - offset)

@@ -264,12 +264,12 @@ impl Sender {
 
 impl common::Producer for Sender {
   fn produce(&mut self,size:usize) -> Option<&[u8]> {
-    self.write_at %= self.len;
-    let remaining_len = self.len - self.write_at;
-    let sent_util = std::cmp::min(remaining_len,size) + self.write_at;
-    self.sent_bytes.fetch_add((sent_util - self.write_at) as i64, std::sync::atomic::Ordering::Relaxed);
-    log::log!(log::Level::Trace,"Sender: produce {} bytes",sent_util - self.write_at);
-    return Some(&self.data.as_bytes()[self.write_at..sent_util]);
+    //self.write_at %= self.len;
+    //let remaining_len = self.len - self.write_at;
+    //let sent_util = std::cmp::min(remaining_len,size) + self.write_at;
+    //self.sent_bytes.fetch_add((sent_util - self.write_at) as i64, std::sync::atomic::Ordering::Relaxed);
+    log::log!(log::Level::Trace,"Sender: produce {} bytes",size);
+    return Some(&self.data.as_bytes()[..size]);
   }
 }
 
