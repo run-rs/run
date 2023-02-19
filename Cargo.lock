@@ -360,6 +360,7 @@ dependencies = [
  "env_logger",
  "log",
  "mockalloc",
+ "pnet",
  "run-dpdk",
  "run-packet",
  "run-time",

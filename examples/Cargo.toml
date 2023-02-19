@@ -17,6 +17,8 @@ byteorder = "1"
 clap = {version="3.1.6", features=["derive"]}
 mockalloc = "0.1.2"
 env_logger = "0.9"
+pnet = "0.31.0"
+
 
 [[example]]
 name = "port_test"
@@ -70,3 +72,7 @@ path = "dpdk/smol_traffic_fwd.rs"
 [[example]]
 name = "run_tcp"
 path = "protocol_stack/run_tcp.rs"
+
+[[example]]
+name = "pnet_tcp"
+path = "protocol_stack/pnet_tcp.rs"

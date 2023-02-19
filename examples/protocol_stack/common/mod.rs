@@ -99,3 +99,11 @@ where
     dev.send_batch(&mut send_batch);
   }
 }
+
+
+
+pub use run_packet::ether::ETHER_HEADER_LEN;
+pub use run_packet::ipv4::IPV4_HEADER_LEN;
+pub use run_packet::tcp::TCP_HEADER_LEN;
+pub use run_packet::ether::MacAddr;
+pub use run_packet::ipv4::Ipv4Addr;
