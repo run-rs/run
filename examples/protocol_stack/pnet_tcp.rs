@@ -138,67 +138,55 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
     ipv4_pkt.set_ttl(64);
     ipv4_pkt.set_next_level_protocol(pnet::packet::ip::IpNextHeaderProtocols::Tcp);
     ipv4_pkt.set_source(router_info.src_ipv4.0.into());
+    assert_eq!(ipv4_pkt.get_source().octets(),router_info.src_ipv4.0);
     ipv4_pkt.set_destination(router_info.dest_ipv4.0.into());
     let checksum = pnet::packet::ipv4::checksum(&ipv4_pkt.to_immutable());
     ipv4_pkt.set_checksum(checksum);
     let mut tcp_pkt = MutableTcpPacket::new(ipv4_pkt.payload_mut()).unwrap();
     tcp_pkt.set_destination(router_info.dest_port);
     tcp_pkt.set_source(router_info.src_port);
-    tcp_pkt.set_data_offset((header_len / 4) as u8);
+    tcp_pkt.set_data_offset(((header_len + 3) / 4) as u8);
     tcp_pkt.set_sequence(repr.seq_number.0 as u32);
     tcp_pkt.set_urgent_ptr(0);
         
     let ack = repr.ack_number.unwrap_or_default().0 as u32;
     tcp_pkt.set_acknowledgement(ack);
-    tcp_pkt.set_window(repr.window_len); 
+    tcp_pkt.set_window(repr.window_len);
+    let mut flags = 0; 
     match repr.ctrl {
       common::stack::tcp::TcpControl::None => (),
-      common::stack::tcp::TcpControl::Psh => tcp_pkt.set_flags(TcpFlags::PSH),
-      common::stack::tcp::TcpControl::Syn => tcp_pkt.set_flags(TcpFlags::SYN),
-      common::stack::tcp::TcpControl::Fin => tcp_pkt.set_flags(TcpFlags::FIN),
-      common::stack::tcp::TcpControl::Rst => tcp_pkt.set_flags(TcpFlags::RST),
+      common::stack::tcp::TcpControl::Psh => flags |= TcpFlags::PSH,
+      common::stack::tcp::TcpControl::Syn => flags |= TcpFlags::SYN,
+      common::stack::tcp::TcpControl::Fin => flags |= TcpFlags::FIN,
+      common::stack::tcp::TcpControl::Rst => flags |= TcpFlags::RST,
     }
     if repr.ack_number.is_some() {
-      tcp_pkt.set_flags(TcpFlags::ACK);
+      flags |= TcpFlags::ACK;
     }
-    let mut options = ArrayVec::<TcpOption,10>::new();
-    if let Some(val) = repr.max_seg_size {
-      unsafe {
-        options.push_unchecked(TcpOption::mss(val));
+    tcp_pkt.set_flags(flags);
+    {
+      let mut options = tcp_pkt.get_options_raw_mut();
+      if let Some(value) = repr.max_seg_size {
+        let tmp = options;
+        options = run_packet::tcp::TcpOption::MaxSegmentSize(value).build(tmp);
       }
-    }
+      if let Some(value) = repr.window_scale {
+        let tmp = options;
+        options = run_packet::tcp::TcpOption::WindowScale(value).build(tmp);
+      }
+      if repr.sack_permitted {
+        let tmp = options;
+        options = run_packet::tcp::TcpOption::SackPermitted.build(tmp);
+      } else if repr.ack_number.is_some() 
+        && repr.sack_ranges.iter().any(|s| s.is_some()) {
+        let tmp = options;
+        options = run_packet::tcp::TcpOption::SackRange(repr.sack_ranges).build(tmp);
+      }
 
-    if let Some(val) = repr.window_scale {
-      unsafe {
-        options.push_unchecked(TcpOption::wscale(val));
+      if !options.is_empty() {
+        run_packet::tcp::TcpOption::EndOfList.build(options);
       }
     }
-
-    if repr.sack_permitted {
-      unsafe {
-        options.push_unchecked(TcpOption::sack_perm());
-      }
-    } else if repr.ack_number.is_some() {
-      let mut sacks = ArrayVec::<u32,6>::new();
-      for sack in repr.sack_ranges.iter() {
-        if let Some((val1,val2)) = sack {
-          unsafe {
-            sacks.push_unchecked(*val1);
-            sacks.push_unchecked(*val2);
-          }
-        }
-      }
-      unsafe {
-        options.push_unchecked(TcpOption::selective_ack(sacks.as_slice()));
-      }
-    }
-    if !options.is_empty() {
-      unsafe {
-        options.push_unchecked(TcpOption::nop());
-      }
-    }
-    
-    tcp_pkt.set_options(options.as_slice());
 
     let checksum = ipv4_checksum(&tcp_pkt.to_immutable(), 
                                 &router_info.src_ipv4.0.into(),
@@ -243,7 +231,7 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
     
     let payload_offset = common::ETHER_HEADER_LEN 
                               + common::IPV4_HEADER_LEN 
-                              + tcp_pkt.get_data_offset() as usize;
+                              + (tcp_pkt.get_data_offset() * 4) as usize;
     let flags = tcp_pkt.get_flags();
     let syn = TcpFlags::SYN & flags != 0;
     let fin = TcpFlags::FIN & flags != 0;
