@@ -76,3 +76,7 @@ path = "protocol_stack/run_tcp.rs"
 [[example]]
 name = "pnet_tcp"
 path = "protocol_stack/pnet_tcp.rs"
+
+[[example]]
+name = "smol_tcp"
+path = "protocol_stack/smol_tcp.rs"
