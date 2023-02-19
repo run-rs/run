@@ -591,6 +591,7 @@ where
 
     // From RFC 793
     reply.seq_number = self.remote_last_seq;
+    println!("make ack number, rx buffer len: {}, remote seq no {}",self.rx_buffer.len(),self.remote_seq_no);
     reply.ack_number = Some(self.remote_seq_no + self.rx_buffer.len());
     self.remote_last_ack = reply.ack_number;
 
