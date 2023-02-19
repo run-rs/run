@@ -229,7 +229,8 @@ where
   fn push_data_to_consumer(&mut self) {
     let max_push_size = self.rx_buffer.len();
     let data = self.consumer.consume(max_push_size);
-    self.rx_buffer.dequeue_slice(data);
+    let size = self.rx_buffer.dequeue_slice(data);
+    self.remote_seq_no += size;
   }
 
   fn timed_out(&self,ts:smoltcp::time::Instant) -> bool {
@@ -312,7 +313,7 @@ where
     }
 
     let can_fin = want_fin && self.remote_last_seq == self.local_seq_no + self.tx_buffer.len();
-    
+   
     can_send || can_fin
   }
 
@@ -591,10 +592,13 @@ where
 
     // From RFC 793
     reply.seq_number = self.remote_last_seq;
-    println!("make ack number, rx buffer len: {}, remote seq no {}",self.rx_buffer.len(),self.remote_seq_no);
+    //println!("make ack number, rx buffer len: {}, remote seq no {}",self.rx_buffer.len(),self.remote_seq_no);
     reply.ack_number = Some(self.remote_seq_no + self.rx_buffer.len());
     self.remote_last_ack = reply.ack_number;
-
+    log::log!(log::Level::Trace,"\
+        make a ack number,rx buffer len :{}, remote seq no {}",
+      self.rx_buffer.len(),
+      self.remote_seq_no);    
     // From RFC 1323
     reply.window_len = self.scaled_window();
     self.remote_last_win = reply.window_len;
@@ -940,6 +944,7 @@ where
 
     let mut ack_len = 0;
     let mut ack_of_fin = false;
+    let mut ack_all = false;
     if repr.ctrl != tcp_ctrl::TcpControl::Rst {
       if let Some(ack_number) = repr.ack_number {
         // Sequence number corresponding to the first byte in `tx_buffer`.
@@ -965,6 +970,7 @@ where
 
             ack_of_fin = true;
           }
+          ack_all = self.remote_last_seq == ack_number;
         }
 
         self.rtte.on_ack(ts, ack_number);
@@ -1103,7 +1109,7 @@ where
       // ACK packets in ESTABLISHED state reset the retransmit timer,
       // except for duplicate ACK packets which preserve it.
       (state::TcpState::Established, tcp_ctrl::TcpControl::None) => {
-        if !self.timer.is_retransmit() || ack_len != 0 {
+        if !self.timer.is_retransmit() || ack_all {
           self.timer.set_for_idle(ts, self.keep_alive);
         }
       }
@@ -1122,7 +1128,9 @@ where
         if ack_of_fin {
             self.set_state(state::TcpState::FinWait2);
         }
-        self.timer.set_for_idle(ts, self.keep_alive);
+        if ack_all {
+            self.timer.set_for_idle(ts, self.keep_alive);
+        }
       }
 
       // FIN packets in FIN-WAIT-1 state change it to CLOSING, or to TIME-WAIT
@@ -1518,7 +1526,7 @@ where
   }
   
   fn on_recv(&mut self,mut mbuf:run_dpdk::Mbuf,ts:smoltcp::time::Instant) -> Option<run_dpdk::Mbuf> {
-    self.push_data_to_consumer();
+    //self.push_data_to_consumer();
 
     let (repr,router_info,payload_offset) = {
       self.packet_processer.parse(&mut mbuf)?
@@ -1567,6 +1575,8 @@ where
     }
 
     mbuf.trim_front(payload_offset);
-    return self.process(ts,mbuf,&repr);
+    let res = self.process(ts,mbuf,&repr);
+    self.push_data_to_consumer();
+    return res;
   }
 }

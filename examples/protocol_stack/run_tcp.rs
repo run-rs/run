@@ -466,7 +466,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     };
     tcprepr.ack_number = match tcppkt.ack() {
       true => {
-        println!("received a ack number {}",tcppkt.ack_number());
+        //println!("received a ack number {}",tcppkt.ack_number());
         Some(TcpSeqNumber(tcppkt.ack_number() as i32))
       }
       false => None,
@@ -512,7 +512,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     println!("  window size: {}",tcprepr.window_len);
     println!("  header len: {}",tcppkt.header_len());
     println!("  payload len: {}",tcppkt.payload().chunk().len());
-
+    println!("  dest mac: {}",route_info.dest_ipv4);
     Some((tcprepr,route_info,payload_offset))
   }
 }
