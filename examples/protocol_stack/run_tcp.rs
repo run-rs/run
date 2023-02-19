@@ -400,15 +400,20 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
                      common::stack::RouterInfo,usize)> {
     let mut route_info:RouterInfo = RouterInfo::default();
     let mut tcprepr:TcpRepr = TcpRepr::default();
+    
+    log::log!(log::Level::Trace,"received a raw packet {} bytes",mbuf.len());
+
     let pbuf = Pbuf::new(mbuf);
     let ethpkt = EtherPacket::parse(pbuf).ok()?;
     if ethpkt.ethertype() != EtherType::IPV4 {
+      log::log!(log::Level::Trace,"non-ipv4 packet.drop it");
       return None;
     }
     route_info.dest_mac = ethpkt.dest_mac();
     route_info.src_mac = ethpkt.source_mac();
     let ippkt = Ipv4Packet::parse(ethpkt.payload()).ok()?;
     if ippkt.protocol() != IpProtocol::TCP {
+      log::log!(log::Level::Trace,"non-tcp packet. drop it");
       return None;
     }
     route_info.src_ipv4 = ippkt.source_ip();
