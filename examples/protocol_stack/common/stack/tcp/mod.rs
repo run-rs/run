@@ -1040,7 +1040,7 @@ where
           self.remote_mss = max_seg_size as usize
         }
 
-        self.local_seq_no = self.random_seq_no();
+        self.local_seq_no = TcpSeqNumber(0);//self.random_seq_no();
         self.remote_seq_no = repr.seq_number + 1;
         self.remote_last_seq = self.local_seq_no;
         self.remote_has_sack = repr.sack_permitted;
