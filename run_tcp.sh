@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FLAGS=$(getopt --long update, client,trace,period: -- "$@")
+FLAGS=$(getopt --long update, client,trace,period:,buf_size: -- "$@")
 
 [ $? -eq 0 ] || {
   echo "Incorrect options provided"

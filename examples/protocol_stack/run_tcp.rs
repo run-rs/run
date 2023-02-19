@@ -21,245 +21,14 @@ struct Flags {
 
 struct Sender {
   pub sent_bytes:Arc<AtomicI64>,
-  pub data:String,
-  write_at:usize,
-  len: usize,
+  pub data:Vec<u8>,
 }
 
 impl Sender {
-  pub fn new() -> Self {
-    let data = String::from_str(
-      "We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics
-      We launched ChatGPT as a research preview so we could \
-      learn more about the system’s strengths and weaknesses \
-      and gather user feedback to help us improve upon its \
-      limitations. Since then, millions of people have given \
-      us feedback, we’ve made several important updates and \
-      we’ve seen users find value across a range of \
-      professional use-cases, including drafting & \
-      editing content, brainstorming ideas, programming help, \
-      and learning new topics").unwrap();
-    let len = data.len();
+  pub fn new(size:usize) -> Self {
     Sender {
       sent_bytes: Arc::new(AtomicI64::new(0)),
-      data: data,
-      write_at:0,
-      len: len
+      data: vec![0;size],
     }
   }
 }
@@ -271,7 +40,7 @@ impl common::Producer for Sender {
     //let sent_util = std::cmp::min(remaining_len,size) + self.write_at;
     self.sent_bytes.fetch_add((size) as i64, std::sync::atomic::Ordering::Relaxed);
     //log::log!(log::Level::Trace,"Sender: produce {} bytes",size);
-    return Some(&self.data.as_bytes()[..size]);
+    return Some(&self.data[..size]);
   }
 }
 
@@ -604,7 +373,7 @@ fn server_start(args:&Flags) {
 }
 
 fn client_start(args:&Flags) {
-  let sender = Sender::new();
+  let sender = Sender::new(args.buffer as usize);
   let recver = Receiver::new(64);
 
   let sent_bytes = sender.sent_bytes.clone();
