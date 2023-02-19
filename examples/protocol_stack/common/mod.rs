@@ -31,12 +31,12 @@ pub trait Batch {
 pub trait Stack {
   fn is_close(&self)-> bool;
 
-  fn on_recv(&mut self,pkt:run_dpdk::Mbuf,ts:run_time::Instant) 
+  fn on_recv(&mut self,pkt:run_dpdk::Mbuf,ts:smoltcp::time::Instant) 
         -> Option<run_dpdk::Mbuf>;
   
-  fn has_data(&mut self,ts:run_time::Instant) -> bool;
+  fn has_data(&mut self,ts:smoltcp::time::Instant) -> bool;
   
-  fn do_send<F>(&mut self,pkt:run_dpdk::Mbuf,ts:run_time::Instant,emit:F)
+  fn do_send<F>(&mut self,pkt:run_dpdk::Mbuf,ts:smoltcp::time::Instant,emit:F)
         where F: FnOnce(run_dpdk::Mbuf) -> bool;
 }
 
@@ -52,7 +52,7 @@ pub trait Consumer {
 
 pub fn poll<S:Stack,P:Device>(run: Arc<AtomicBool>, dev:&mut P,stack:&mut S) {
   while run.load(std::sync::atomic::Ordering::Relaxed) {
-    let ts = run_time::Instant::now();
+    let ts = smoltcp::time::Instant::now();
     if let Some(pkt) = dev.recv() {
       if let Some(response) = stack.on_recv(pkt, ts) {
         dev.send(response);
@@ -74,7 +74,7 @@ where
   S: Stack,
   P: Batch + Device {
   while run.load(std::sync::atomic::Ordering::Relaxed) {
-    let ts = run_time::Instant::now();
+    let ts = smoltcp::time::Instant::now();
     let mut recv_batch:arrayvec::ArrayVec<run_dpdk::Mbuf,N> = 
                                                     arrayvec::ArrayVec::new();
     let mut resp_batch:arrayvec::ArrayVec<run_dpdk::Mbuf,N> = 

@@ -2,12 +2,12 @@ use run_packet::{tcp::TCP_HEADER_LEN, ether::ETHER_HEADER_LEN, ipv4::IPV4_HEADER
 
 pub const DEFAULT_MSS: usize = 536;
 
-pub const ACK_DELAY_DEFAULT: std::time::Duration = 
-                                            std::time::Duration::
+pub const ACK_DELAY_DEFAULT: smoltcp::time::Duration = 
+                                            smoltcp::time::Duration::
                                                            from_millis(10);
 
-pub const CLOSE_DELAY: std::time::Duration = 
-                                      std::time::Duration::from_millis(10_000);
+pub const CLOSE_DELAY: smoltcp::time::Duration = 
+                                      smoltcp::time::Duration::from_millis(10_000);
 
 pub const RTTE_INITIAL_RTT: u32 = 300;
 

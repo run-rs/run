@@ -3,7 +3,7 @@
 pub struct RttEstimator {
   rtt: u32,
   deviation: u32,
-  timestamp: Option<(run_time::Instant,super::seq_number::TcpSeqNumber)>,
+  timestamp: Option<(smoltcp::time::Instant,super::seq_number::TcpSeqNumber)>,
   max_seq_sent: Option<super::seq_number::TcpSeqNumber>,
   rto_count: u8
 }
@@ -22,12 +22,12 @@ impl Default for RttEstimator {
 
 
 impl RttEstimator {
-  pub(crate) fn retransmission_timeout(&self) -> std::time::Duration {
+  pub(crate) fn retransmission_timeout(&self) -> smoltcp::time::Duration {
     let margin = super::constant::RTTE_MIN_MARGIN.max(self.deviation * 4);
     let ms = (self.rtt + margin)
                   .max(super::constant::RTTE_MIN_RTO)
                   .min(super::constant::RTTE_MAX_RTO);
-    std::time::Duration::from_millis(ms as u64)
+    smoltcp::time::Duration::from_millis(ms as u64)
   }
 
   pub(crate) fn sample(&mut self,new_rtt: u32) {
@@ -35,7 +35,7 @@ impl RttEstimator {
     let diff = (self.rtt as i32 - new_rtt as i32).abs() as u32;
     self.deviation = (self.deviation * 3 + diff + 3) / 4;
     self.rto_count = 0;
-    let rto = self.retransmission_timeout().as_millis();
+    let rto = self.retransmission_timeout().millis();
     log::log!(log::Level::Trace,
       "rtte: sample={:?} rtt={:?} dev={:?} rto={:?}",
       new_rtt,
@@ -45,7 +45,7 @@ impl RttEstimator {
   }
 
   pub(crate) fn on_send(&mut self,
-                    ts:run_time::Instant,
+                    ts:smoltcp::time::Instant,
                     seq: super::seq_number::TcpSeqNumber) {
     if self.max_seq_sent
            .map(|max_seq_sent| seq > max_seq_sent)
@@ -60,11 +60,11 @@ impl RttEstimator {
   }
 
   pub(crate) fn on_ack(&mut self,
-                  ts:run_time::Instant,
+                  ts:smoltcp::time::Instant,
                   seq: super::seq_number::TcpSeqNumber) {
     if let Some((sent_ts,sent_seq)) = self.timestamp {
       if seq >= sent_seq {
-        self.sample((ts - sent_ts).as_millis() as u32);
+        self.sample((ts - sent_ts).millis() as u32);
         self.timestamp = None;
       }
     }
@@ -79,7 +79,7 @@ impl RttEstimator {
     if self.rto_count >=3 {
       self.rto_count = 0;
       self.rtt = super::constant::RTTE_MAX_RTO.min(self.rtt * 2);
-      let rto = self.retransmission_timeout().as_millis();
+      let rto = self.retransmission_timeout().millis();
       log::log!(log::Level::Trace,
         "rtte: too many retransmissions,increasing: \
          rtt={:?} dev={:?} rto={:?}",

@@ -49,8 +49,8 @@ where
   rtte: rtt_estimator::RttEstimator,
   assembler:crate::common::assembler::Assembler,
   rx_fin_received:bool,
-  timeout:Option<std::time::Duration>,
-  keep_alive:Option<std::time::Duration>,
+  timeout:Option<smoltcp::time::Duration>,
+  keep_alive:Option<smoltcp::time::Duration>,
   local_seq_no: seq_number::TcpSeqNumber,
   remote_seq_no: seq_number::TcpSeqNumber,
   remote_last_seq: seq_number::TcpSeqNumber,
@@ -61,13 +61,13 @@ where
   remote_win_scale:Option<u8>,
   remote_has_sack:bool,
   remote_mss:usize,
-  remote_last_ts:Option<run_time::Instant>,
+  remote_last_ts:Option<smoltcp::time::Instant>,
   local_rx_last_seq: Option<seq_number::TcpSeqNumber>,
   local_rx_last_ack: Option<seq_number::TcpSeqNumber>,
   local_rx_dup_acks:u8,
-  ack_delay: Option<std::time::Duration>,
+  ack_delay: Option<smoltcp::time::Duration>,
   ack_delay_timer:ack_delay_timer::AckDelayTimer,
-  challenge_ack_timer: run_time::Instant,
+  challenge_ack_timer: smoltcp::time::Instant,
   nagle: bool,
   rand: crate::common::rand::Rand,
 }
@@ -127,9 +127,9 @@ where
       local_rx_dup_acks:0,
       ack_delay: Some(constant::ACK_DELAY_DEFAULT),
       ack_delay_timer: ack_delay_timer::AckDelayTimer::Idle,
-      challenge_ack_timer: run_time::Instant::from_secs(0),
+      challenge_ack_timer: smoltcp::time::Instant::from_secs(0),
       nagle:true,
-      rand:crate::common::rand::Rand::new(run_time::Instant::now().raw()),
+      rand:crate::common::rand::Rand::new(smoltcp::time::Instant::now().millis() as u64),
     }
   }
 
@@ -213,7 +213,7 @@ where
     self.remote_mss = constant::DEFAULT_MSS;
     self.remote_last_ts = None;
     self.ack_delay_timer = ack_delay_timer::AckDelayTimer::Idle;
-    self.challenge_ack_timer = run_time::Instant::from_secs(0);
+    self.challenge_ack_timer = smoltcp::time::Instant::from_secs(0);
   }
 
   fn pull_data_from_producer(&mut self) {
@@ -232,7 +232,7 @@ where
     self.rx_buffer.dequeue_slice(data);
   }
 
-  fn timed_out(&self,ts:run_time::Instant) -> bool {
+  fn timed_out(&self,ts:smoltcp::time::Instant) -> bool {
     match (self.remote_last_ts,self.timeout) {
       (Some(remote_last_ts),Some(timeout)) => {
         ts >= remote_last_ts + timeout
@@ -249,7 +249,7 @@ where
     }  
   }
   
-  fn delayed_ack_expired(&self, timestamp: run_time::Instant) -> bool {
+  fn delayed_ack_expired(&self, timestamp: smoltcp::time::Instant) -> bool {
     match self.ack_delay_timer {
       ack_delay_timer::AckDelayTimer::Idle => true,
       ack_delay_timer::AckDelayTimer::Waiting(t) => t <= timestamp,
@@ -316,7 +316,7 @@ where
     can_send || can_fin
   }
 
-  fn build<F>(&mut self,mut mbuf:run_dpdk::Mbuf,ts:run_time::Instant,emit:F)
+  fn build<F>(&mut self,mut mbuf:run_dpdk::Mbuf,ts:smoltcp::time::Instant,emit:F)
   where 
     F:FnOnce(run_dpdk::Mbuf) -> bool {
     let mut repr = tcp_repr::TcpRepr {
@@ -648,7 +648,7 @@ where
   }
 
   fn process(&mut self,
-        ts:run_time::Instant,
+        ts:smoltcp::time::Instant,
         mut mbuf:run_dpdk::Mbuf,repr:&TcpRepr) 
                                           -> Option<run_dpdk::Mbuf> {
     let payload = mbuf.data();
@@ -847,7 +847,7 @@ where
           if ts < self.challenge_ack_timer {
             return None;
           }
-          self.challenge_ack_timer = ts - std::time::Duration::from_secs(1);
+          self.challenge_ack_timer = ts - smoltcp::time::Duration::from_secs(1);
           let reply = {
             self.ack_reply(repr)
           };
@@ -925,7 +925,7 @@ where
           if ts < self.challenge_ack_timer {
             return None;
           }
-          self.challenge_ack_timer = ts - std::time::Duration::from_secs(1);
+          self.challenge_ack_timer = ts - smoltcp::time::Duration::from_secs(1);
           let reply = self.ack_reply(repr);
           self.packet_processer.build(&mut mbuf,&reply,&router_info);
           return Some(mbuf);
@@ -1410,14 +1410,14 @@ where
     self.local_port == 0  
   }
 
-  fn do_send<F>(&mut self,pkt:run_dpdk::Mbuf,ts:run_time::Instant,emit:F) 
+  fn do_send<F>(&mut self,pkt:run_dpdk::Mbuf,ts:smoltcp::time::Instant,emit:F) 
   where
     F:FnOnce(run_dpdk::Mbuf) -> bool {
     self.pull_data_from_producer();
     self.build(pkt,ts,emit);
   }
   
-  fn has_data(&mut self,ts:run_time::Instant) -> bool {
+  fn has_data(&mut self,ts:smoltcp::time::Instant) -> bool {
     if self.remote_last_ts.is_none() {
       // we get here in exactly two cases:
       // 1) This socket just transitioned into SYN-SENT.
@@ -1445,7 +1445,7 @@ where
           self.local_port,
           self.remote_ipv4,
           self.remote_port,
-          retransmit_delta.as_millis());
+          retransmit_delta.millis());
         
         self.remote_last_seq = self.local_seq_no;
         self.timer.set_for_idle(ts, self.keep_alive);
@@ -1511,7 +1511,7 @@ where
     return true;
   }
   
-  fn on_recv(&mut self,mut mbuf:run_dpdk::Mbuf,ts:run_time::Instant) -> Option<run_dpdk::Mbuf> {
+  fn on_recv(&mut self,mut mbuf:run_dpdk::Mbuf,ts:smoltcp::time::Instant) -> Option<run_dpdk::Mbuf> {
     self.push_data_to_consumer();
 
     let (repr,router_info,payload_offset) = {

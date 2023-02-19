@@ -3,7 +3,7 @@ pub(crate) enum PollAt {
     /// The socket needs to be polled immidiately.
     Now,
     /// The socket needs to be polled at given [Instant][struct.Instant].
-    Time(run_time::Instant),
+    Time(smoltcp::time::Instant),
     /// The socket does not need to be polled unless there are external changes.
     Ingress,
 }
@@ -13,15 +13,15 @@ pub(crate) enum PollAt {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Timer {
     Idle {
-        keep_alive_at: Option<run_time::Instant>,
+        keep_alive_at: Option<smoltcp::time::Instant>,
     },
     Retransmit {
-        expires_at: run_time::Instant,
-        delay: std::time::Duration,
+        expires_at: smoltcp::time::Instant,
+        delay: smoltcp::time::Duration,
     },
     FastRetransmit,
     Close {
-        expires_at: run_time::Instant,
+        expires_at: smoltcp::time::Instant,
     },
 }
 
@@ -32,7 +32,7 @@ impl Timer {
     }
   }
 
-  pub fn should_keep_alive(&self,ts:run_time::Instant) -> bool {
+  pub fn should_keep_alive(&self,ts:smoltcp::time::Instant) -> bool {
     match *self {
       Timer::Idle { 
         keep_alive_at:Some(keep_aliva_at) 
@@ -41,17 +41,17 @@ impl Timer {
     }
   }
 
-  pub fn should_retransmit(&self,ts:run_time::Instant) -> Option<std::time::Duration> {
+  pub fn should_retransmit(&self,ts:smoltcp::time::Instant) -> Option<smoltcp::time::Duration> {
     match *self {
       Timer::Retransmit { expires_at, delay } if ts >= expires_at => {
           Some(ts - expires_at + delay)
       }
-      Timer::FastRetransmit => Some(std::time::Duration::from_millis(0)),
+      Timer::FastRetransmit => Some(smoltcp::time::Duration::from_millis(0)),
       _ => None,
     }
   }
 
-  pub fn should_close(&self,ts:run_time::Instant) -> bool {
+  pub fn should_close(&self,ts:smoltcp::time::Instant) -> bool {
     match *self {
       Timer::Close { expires_at } if ts >= expires_at => true,
       _ => false
@@ -72,7 +72,7 @@ impl Timer {
     }
   }
 
-  pub fn set_for_idle(&mut self, timestamp: run_time::Instant, interval: Option<std::time::Duration>) {
+  pub fn set_for_idle(&mut self, timestamp: smoltcp::time::Instant, interval: Option<smoltcp::time::Duration>) {
     *self = Timer::Idle {
         keep_alive_at: interval.map(|interval| timestamp + interval),
     }
@@ -84,12 +84,12 @@ impl Timer {
     } = *self
     {
         if keep_alive_at.is_none() {
-            *keep_alive_at = Some(run_time::Instant::from_millis(0))
+            *keep_alive_at = Some(smoltcp::time::Instant::from_millis(0))
         }
     }
   }
 
-  pub(crate) fn rewind_keep_alive(&mut self, timestamp: run_time::Instant, interval: Option<std::time::Duration>) {
+  pub(crate) fn rewind_keep_alive(&mut self, timestamp: smoltcp::time::Instant, interval: Option<smoltcp::time::Duration>) {
     if let Timer::Idle {
         ref mut keep_alive_at,
     } = *self
@@ -98,7 +98,7 @@ impl Timer {
     }
   }
 
-  pub(crate) fn set_for_retransmit(&mut self, timestamp: run_time::Instant, delay: std::time::Duration) {
+  pub(crate) fn set_for_retransmit(&mut self, timestamp: smoltcp::time::Instant, delay: smoltcp::time::Duration) {
     match *self {
         Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
             *self = Timer::Retransmit {
@@ -121,7 +121,7 @@ impl Timer {
     *self = Timer::FastRetransmit
   }
 
-  pub fn set_for_close(&mut self, timestamp: run_time::Instant) {
+  pub fn set_for_close(&mut self, timestamp: smoltcp::time::Instant) {
     *self = Timer::Close {
         expires_at: timestamp + super::constant::CLOSE_DELAY,
     }
