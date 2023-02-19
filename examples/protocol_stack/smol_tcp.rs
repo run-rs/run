@@ -183,7 +183,9 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
     }
     tcp_pkt.fill_checksum(&Ipv4Address(router_info.src_ipv4.0).into(),
                     &Ipv4Address(router_info.dest_ipv4.0).into());
-    
+    println!("-------Send Packet------");
+    println!("{}",repr);
+    println!("  total packet len:{}",total_header_overhead + tcp_pkt.payload_mut().len());    
   }
 
   fn parse(&mut self,mbuf:&mut run_dpdk::Mbuf) 
@@ -267,7 +269,10 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
       }
       options = next_options;
     }
-    
+
+    println!("----Recevied a pakcet-----");
+    println!("{}",tcprepr);
+    println!("  packet len:{}",total_packet_len);
     mbuf.truncate(total_packet_len as usize);
     Some((tcprepr,route_info,payload_offset))
   }

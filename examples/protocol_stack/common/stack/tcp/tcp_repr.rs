@@ -19,9 +19,9 @@ impl core::fmt::Display for TcpRepr {
       super::tcp_ctrl::TcpControl::Psh => write!(f, " psh")?,
       super::tcp_ctrl::TcpControl::None => (),
     }
-    write!(f, " seq={}", self.seq_number)?;
+    write!(f, " seq={}", self.seq_number.0 as u32)?;
     if let Some(ack_number) = self.ack_number {
-      write!(f, " ack={}", ack_number)?;
+      write!(f, " ack={}", ack_number.0 as u32)?;
     }
     write!(f, " win={}", self.window_len)?;
     if let Some(max_seg_size) = self.max_seg_size {
