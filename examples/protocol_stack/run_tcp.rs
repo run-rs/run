@@ -4,7 +4,7 @@ use std::{str::FromStr, sync::{Arc, atomic::{AtomicBool, AtomicI64}}, time::Dura
 
 use clap::Parser;
 
-use common::stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber}};
+use common::{stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber}}, Producer};
 use run_dpdk::Pbuf;
 use run_packet::{tcp::{TcpPacket, TcpOption}, ipv4::{Ipv4Packet, IpProtocol, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN, Ipv4Addr}, ether::{EtherPacket, MacAddr, EtherType, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, PktMut, Buf};
 
@@ -296,6 +296,23 @@ impl common::Consumer for Receiver {
   }
 }
 
+struct SendNothing {
+  pub sent_bytes:Arc<AtomicI64>
+}
+
+impl SendNothing {
+  pub fn new() -> Self {
+    SendNothing { 
+      sent_bytes:  Arc::new(AtomicI64::new(0))
+    }
+  }
+}
+
+impl Producer for SendNothing {
+  fn produce(&mut self,size:usize) -> Option<&[u8]> {
+      return Some(&[])
+  }
+}
 
 pub struct RunTcpPacketProcesser {
   
@@ -501,7 +518,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
 }
 
 fn server_start(args:&Flags) {
-  let sender = Sender::new();
+  let sender = SendNothing::new();
   let recver = Receiver::new(9000);
 
   let sent_bytes = sender.sent_bytes.clone();
