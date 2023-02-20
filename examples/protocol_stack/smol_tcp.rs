@@ -1,10 +1,10 @@
 mod common;
 
-use std::{sync::{Arc, atomic::{AtomicBool, AtomicI64}}, time::Duration, io::Write, str::FromStr};
+use std::{sync::{Arc, atomic::{AtomicBool, AtomicI64}}, time::Duration, io::Write};
 
 use clap::Parser;
 
-use common::{stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber}}, Producer};
+use common::{stack::{RouterInfo, tcp::{TcpRepr, TcpControl}}, Producer};
 
 use smoltcp::wire::*;
 use smoltcp::wire::EthernetAddress;
@@ -117,6 +117,7 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
 
     let total_header_overhead = header_len + common::ETHER_HEADER_LEN + common::IPV4_HEADER_LEN;
     let payload_len = mbuf.len();
+    assert!(total_header_overhead < 128);
     unsafe { mbuf.extend_front(total_header_overhead) };
     
     let mut epkt =  smoltcp::wire::EthernetFrame::new_unchecked(mbuf.data_mut()); 
@@ -137,15 +138,18 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
     ipv4_pkt.set_protocol(IpProtocol::Tcp);
     ipv4_pkt.set_src_addr(Ipv4Address(router_info.src_ipv4.0));
     ipv4_pkt.set_dst_addr(Ipv4Address(router_info.dest_ipv4.0));
+    ipv4_pkt.set_checksum(0);
     ipv4_pkt.fill_checksum();
     
+    assert!(ipv4_pkt.payload_mut().len() >= header_len);
     let mut tcp_pkt = TcpPacket::new_unchecked(ipv4_pkt.payload_mut());
     tcp_pkt.set_dst_port(router_info.dest_port);
     tcp_pkt.set_src_port(router_info.src_port);
     tcp_pkt.set_header_len(header_len as u8);
     tcp_pkt.set_seq_number(smoltcp::wire::TcpSeqNumber(repr.seq_number.0));
     tcp_pkt.set_urg(false);
-    tcp_pkt.set_checksum(0);        
+    tcp_pkt.set_checksum(0);
+    tcp_pkt.clear_flags();        
     tcp_pkt.set_ack_number(smoltcp::wire::TcpSeqNumber(repr.ack_number.unwrap_or_default().0));
     tcp_pkt.set_window_len(repr.window_len);
     match repr.ctrl {
