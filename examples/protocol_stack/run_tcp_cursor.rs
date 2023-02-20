@@ -93,9 +93,9 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
   fn build(&mut self,mbuf:&mut run_dpdk::Mbuf,
           repr:&common::stack::tcp::TcpRepr,
           router_info:&common::stack::RouterInfo) {
-    //println!("mbuf headroom: {}",mbuf.front_capacity());
+    println!("mbuf headroom: {}",mbuf.front_capacity());
     // build tcp packet
-    //let payload_len = mbuf.len();
+    let payload_len = mbuf.len();
     let mut tcpheader = run_packet::tcp::TCP_HEADER_TEMPLATE;
     let mut header_len = run_packet::tcp::TCP_HEADER_LEN;
     if repr.max_seg_size.is_some() {
@@ -170,16 +170,17 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
 
     tcppkt.adjust_ipv4_checksum(router_info.src_ipv4, router_info.dest_ipv4);
 
-    //println!("send a tcp packet:");
-    //println!("  ack: {}",if tcppkt.ack() {
-    //  tcppkt.ack_number().to_string()
-    //} else {
-    //  String::from_str("None").unwrap()
-    //});
-    //println!("  window size: {}",tcppkt.window_size());
-    //println!("  seq number: {}",tcppkt.seq_number());
-    //println!("  header len: {}",tcppkt.header_len());
-    //println!("  payload len: {}",payload_len);
+    println!("send a tcp packet:");
+    println!("  ack: {}",if tcppkt.ack() {
+      tcppkt.ack_number().to_string()
+    } else {
+      String::from_str("None").unwrap()
+    });
+    println!("  window size: {}",tcppkt.window_size());
+    println!("  seq number: {}",tcppkt.seq_number());
+    println!("  header len: {}",tcppkt.header_len());
+    println!("  payload len: {}",payload_len);
+
 
 
     // build ip packet
@@ -222,9 +223,10 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       log::log!(log::Level::Trace,"non-tcp packet. drop it");
       return None;
     }
+    let total_packet_len = ippkt.packet_len() + common::ETHER_HEADER_LEN;
     route_info.src_ipv4 = ippkt.source_ip();
     route_info.dest_ipv4 = ippkt.dest_ip();
-
+    
     let mut tcppkt = TcpPacket::parse(ippkt.payload()).ok()?;
     if !tcppkt.verify_ipv4_checksum(route_info.src_ipv4, route_info.dest_ipv4) {
       return None;
@@ -280,16 +282,17 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       }
       options = next_options;
     }
-    //println!("received a tcp packet:");
-    //println!("  ack: {}",match tcprepr.ack_number {
-    //  Some(v) => v.0.to_string(),
-    //  _ => String::from_str("None").unwrap(),
-    //});
-    //println!("  seq number: {}",tcprepr.seq_number);
-    //println!("  window size: {}",tcprepr.window_len);
-    //println!("  header len: {}",tcppkt.header_len());
-    //println!("  payload len: {}",tcppkt.payload().chunk().len());
-    //println!("  dest mac: {}",route_info.dest_ipv4);
+    println!("received a tcp packet:");
+    println!("  ack: {}",match tcprepr.ack_number {
+      Some(v) => v.0.to_string(),
+      _ => String::from_str("None").unwrap(),
+    });
+    println!("  seq number: {}",tcprepr.seq_number);
+    println!("  window size: {}",tcprepr.window_len);
+    println!("  header len: {}",tcppkt.header_len());
+    println!("  payload len: {}",tcppkt.payload().chunk().len());
+    println!("  dest mac: {}",route_info.dest_ipv4);
+    mbuf.truncate(total_packet_len as usize);
     Some((tcprepr,route_info,payload_offset))
   }
 }
