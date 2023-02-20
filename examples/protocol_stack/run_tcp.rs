@@ -17,6 +17,8 @@ struct Flags {
   pub client:bool,
   #[clap(short,long="buf-size")]
   pub buffer:u32,
+  #[clap(long="mtu",default_value_t = 1518)]
+  pub mtu:u32,
 }
 
 struct Sender {
@@ -305,7 +307,7 @@ fn server_start(args:&Flags) {
   let run_clone = run.clone();
   let run_ctrlc = run.clone();
   let mut max_secs = args.period;
-
+  let mtu = args.mtu;
   ctrlc::set_handler(move || {
     run_ctrlc.store(false, std::sync::atomic::Ordering::Relaxed);
   })
@@ -323,7 +325,7 @@ fn server_start(args:&Flags) {
         return;
       }
     };
-    match file.write_all(b"rx bps(Gbps),tx bps(Gbps)\n") {
+    match file.write_all(b"mtu,tx bps(Gbps)\n") {
       Err(err) => {
         log::log!(log::Level::Error,"failed to write : {}",err);
         run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -348,9 +350,8 @@ fn server_start(args:&Flags) {
       assert!(recv_diff >= 0 );
 
       let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
-      let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
 
-      match file.write_all(format!("{},{}\n",rx_bps,tx_bps).as_bytes()) {
+      match file.write_all(format!("{},{}\n",mtu,tx_bps).as_bytes()) {
         Ok(_) => (),
         Err(err) => {
           log::log!(log::Level::Error,"failed to write : {}",err);
@@ -371,7 +372,7 @@ fn server_start(args:&Flags) {
     args.buffer as usize, 
     64);
   
-  stack.set_mtu(1518);
+  stack.set_mtu(mtu as usize);
   stack.bind(SERVER_LOCAL_IPV4, SERVER_PORT, SERVER_LOCAL_MAC);
   stack.listen(SERVER_REMOTE_IPV4, CLIENT_PORT, SERVER_REMOTE_MAC);
   common::poll(run,&mut device, &mut stack);
@@ -389,7 +390,7 @@ fn client_start(args:&Flags) {
   let run_clone = run.clone();
   let run_ctrlc = run.clone();
   let mut max_secs = args.period;
-
+  let mtu = args.mtu;
   ctrlc::set_handler(move || {
     run_ctrlc.store(false, std::sync::atomic::Ordering::Relaxed);
   })
@@ -407,7 +408,7 @@ fn client_start(args:&Flags) {
         return;
       }
     };
-    match file.write_all(b"rx bps(Gbps),tx bps(Gbps)\n") {
+    match file.write_all(b"mtu,tx bps(Gbps)\n") {
       Err(err) => {
         log::log!(log::Level::Error,"failed to write : {}",err);
         run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -432,9 +433,8 @@ fn client_start(args:&Flags) {
       assert!(recv_diff >= 0 );
 
       let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
-      let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
 
-      match file.write_all(format!("{},{}\n",rx_bps,tx_bps).as_bytes()) {
+      match file.write_all(format!("{},{}\n",mtu,tx_bps).as_bytes()) {
         Ok(_) => (),
         Err(err) => {
           log::log!(log::Level::Error,"failed to write : {}",err);
@@ -454,7 +454,7 @@ fn client_start(args:&Flags) {
     64, 
     args.buffer as usize);
   
-  stack.set_mtu(1518);
+  stack.set_mtu(mtu as usize);
   stack.bind(CLINET_LOCAL_IPV4, CLIENT_PORT, CLIENT_LOCAL_MAC);
   stack.connect(CLIENT_REMOTE_IPV4, SERVER_PORT, CLIENT_REMOTE_MAC);
   common::poll(run,&mut device, &mut stack);

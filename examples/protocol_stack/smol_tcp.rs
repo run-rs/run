@@ -17,6 +17,8 @@ struct Flags {
   pub client:bool,
   #[clap(short,long="buf-size")]
   pub buffer:u32,
+  #[clap(short,long="mtu",default_value_t=1518)]
+  pub mtu:u32,
 }
 
 struct Sender {
@@ -359,7 +361,7 @@ fn server_start(args:&Flags) {
     args.buffer as usize, 
     64);
   
-  stack.set_mtu(1518);
+  stack.set_mtu(args.mtu as usize);
   stack.bind(SERVER_LOCAL_IPV4, SERVER_PORT, SERVER_LOCAL_MAC);
   stack.listen(SERVER_REMOTE_IPV4, CLIENT_PORT, SERVER_REMOTE_MAC);
   common::poll(run,&mut device, &mut stack);
@@ -382,7 +384,7 @@ fn client_start(args:&Flags) {
     run_ctrlc.store(false, std::sync::atomic::Ordering::Relaxed);
   })
   .unwrap();
-
+  let mtu = args.mtu;
   let jh = std::thread::spawn(move || {
     let mut last_sent_bytes = 0;
     let mut last_recv_bytes = 0;
@@ -395,7 +397,7 @@ fn client_start(args:&Flags) {
         return;
       }
     };
-    match file.write_all(b"rx bps(Gbps),tx bps(Gbps)\n") {
+    match file.write_all(b"mtu,tx bps(Gbps)\n") {
       Err(err) => {
         log::log!(log::Level::Error,"failed to write : {}",err);
         run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -403,6 +405,7 @@ fn client_start(args:&Flags) {
       },
       _ => (),
     };
+    std::thread::sleep(Duration::from_secs(5));
     while run_clone.load(std::sync::atomic::Ordering::Relaxed) {
       if max_secs == 0 {
         break;
@@ -420,9 +423,8 @@ fn client_start(args:&Flags) {
       assert!(recv_diff >= 0 );
 
       let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
-      let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
 
-      match file.write_all(format!("{},{}\n",rx_bps,tx_bps).as_bytes()) {
+      match file.write_all(format!("{},{}\n",mtu,tx_bps).as_bytes()) {
         Ok(_) => (),
         Err(err) => {
           log::log!(log::Level::Error,"failed to write : {}",err);
@@ -442,7 +444,7 @@ fn client_start(args:&Flags) {
     64, 
     args.buffer as usize);
   
-  stack.set_mtu(1518);
+  stack.set_mtu(mtu as usize);
   stack.bind(CLINET_LOCAL_IPV4, CLIENT_PORT, CLIENT_LOCAL_MAC);
   stack.connect(CLIENT_REMOTE_IPV4, SERVER_PORT, CLIENT_REMOTE_MAC);
   common::poll(run,&mut device, &mut stack);
