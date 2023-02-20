@@ -167,6 +167,7 @@ def main():
     
 
     ax.set_ylabel('ThroughPut (Gbps)')
+    ax.set_xlabel("Packet Bytes")
     ax.set_ylim(0)
     
 
@@ -177,7 +178,7 @@ def main():
                     'verticalalignment': 'baseline',
                     'horizontalalignment': "center"
                 }
-    ax.set_title('Tcp protocol stack performance',pad = 10, **titlefont)
+    ax.set_title('Tcp Protocol Stack Performance',pad = 10, **titlefont)
 
     # hide the top spines
     ax.spines[['right', 'top']].set_visible(False)
