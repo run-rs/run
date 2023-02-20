@@ -48,10 +48,75 @@ def main():
     
     bargroup = ["128","256","512","1518"]
     bars = {
-        "RUN":(),
-        "SmolTcp":(),
-        "Pnet":(),
+        "Pbuf":[0,0,0,0],
+        "Cursor":[0,0,0,0],
+        "SmolTcp":[0,0,0,0],
+        "Pnet":[0,0,0,0],
     }
+    
+    with open("./data/tcp.csv", newline = '') as csvfile:
+        reader = csv.DictReader(csvfile)
+        pbuf = {
+            "128":[0,0],
+            "256":[0,0],
+            "512":[0,0],
+            "1518":[0,0]
+        }
+        cursor = {
+            "128":[0,0],
+            "256":[0,0],
+            "512":[0,0],
+            "1518":[0,0]
+        }
+        smoltcp = {
+            "128":[0,0],
+            "256":[0,0],
+            "512":[0,0],
+            "1518":[0,0]
+        }
+        pnet = {
+            "128":[0,0],
+            "256":[0,0],
+            "512":[0,0],
+            "1518":[0,0]
+        }
+        for row in reader:
+            if row["framework"] == "RUN":
+                pbuf[row["mtu"]][0] += float(row["throughput"])
+                pbuf[row["mtu"]][1] += 1
+            if row["framework"] == "RUN_CURSOR":
+                cursor[row["mtu"]][0] += float(row["throughput"])
+                cursor[row["mtu"]][1] += 1
+            if row["framework"] == "SmolTcp":
+                smoltcp[row["mtu"]][0] += float(row["throughput"])
+                smoltcp[row["mtu"]][1] += 1
+            if row["framework"] == "Pnet":
+                pnet[row["mtu"]][0] += float(row["throughput"])
+                pnet[row["mtu"]][1] += 1
+        
+        bars["Pbuf"][0] = pbuf["128"][0] / pbuf["128"][1]
+        bars["Pbuf"][1] = pbuf["256"][0] / pbuf["256"][1]
+        bars["Pbuf"][2] = pbuf["512"][0] / pbuf["512"][1]
+        bars["Pbuf"][3] = pbuf["1518"][0] / pbuf["1518"][1]
+        
+        bars["Cursor"][0] = cursor["128"][0] / cursor["128"][1]
+        bars["Cursor"][1] = cursor["256"][0] / cursor["256"][1]
+        bars["Cursor"][2] = cursor["512"][0] / cursor["512"][1]
+        bars["Cursor"][3] = cursor["1518"][0] / cursor["1518"][1]
+        
+        bars["SmolTcp"][0] = smoltcp["128"][0] / smoltcp["128"][1]
+        bars["SmolTcp"][1] = smoltcp["256"][0] / smoltcp["256"][1]
+        bars["SmolTcp"][2] = smoltcp["512"][0] / smoltcp["512"][1]
+        bars["SmolTcp"][3] = smoltcp["1518"][0] / smoltcp["1518"][1]
+        
+        bars["Pnet"][0] = pnet["128"][0] / pnet["128"][1]
+        bars["Pnet"][1] = pnet["256"][0] / pnet["256"][1]
+        bars["Pnet"][2] = pnet["512"][0] / pnet["512"][1]
+        bars["Pnet"][3] = pnet["1518"][0] / pnet["1518"][1]
+        
+        print(bars)
+    
+        
     hatches = {}
     hatch_colors = {}
 
@@ -74,25 +139,36 @@ def main():
     multiplier = 0
 
     fig, ax = plt.subplots(constrained_layout = False)
-
     for name, value in bars.items():
         print(name)
         offset = (width + barSpace) * multiplier
         x = x_pos + offset
         print(x)
         print(value)
+        error = np.random.rand(len(bars))
         rects = ax.bar(x, value, width,
                     label = name,
                     color = None,
+                    yerr = error,
                     edgecolor = hatch_colors[name],
                     lw = 1,
                     align = 'center',
                     hatch = hatches[name])
+        if name == "Pbuf":
+            ax.bar_label(rects,fmt="%.2f",color='b',fontsize=8,padding=4)
+        if name == "SmolTcp":
+            ax.bar_label(rects,fmt="%.2f",color='b',fontsize=8,padding=16)
+        if name == "Cursor":
+            ax.bar_label(rects,fmt="%.2f",color='b',fontsize=8,padding=1)
+        if name == "Pnet":
+            ax.bar_label(rects,fmt="%.2f",color='b',fontsize=8,padding=1)
+
         multiplier += 1
     
 
     ax.set_ylabel('ThroughPut (Gbps)')
     ax.set_ylim(0)
+    
 
     titlefont = {
                     'fontsize': "medium",
@@ -101,7 +177,7 @@ def main():
                     'verticalalignment': 'baseline',
                     'horizontalalignment': "center"
                 }
-    ax.set_title('Packet Processing Benchmark',pad = 10, **titlefont)
+    ax.set_title('Tcp protocol stack performance',pad = 10, **titlefont)
 
     # hide the top spines
     ax.spines[['right', 'top']].set_visible(False)
@@ -113,10 +189,10 @@ def main():
         tl.set_fontsize(12)
         tl.set_fontstyle('normal')
 
-    plt.savefig(args.out + '.png', dpi = 300)
-    plt.savefig(args.out + '.pdf', dpi = 300)
-    plt.savefig(args.out + '.svg', dpi = 300)
-    plt.savefig(args.out + '.jpg', dpi = 300)
+    plt.savefig("./figures/tcp" + '.png', dpi = 300)
+    plt.savefig("./figures/tcp" + '.pdf', dpi = 300)
+    plt.savefig("./figures/tcp" + '.svg', dpi = 300)
+    plt.savefig("./figures/tcp" + '.jpg', dpi = 300)
     
 if __name__ == "__main__":
     main()

@@ -85,6 +85,3 @@ path = "protocol_stack/smol_tcp.rs"
 name = "run_tcp_cursor"
 path = "protocol_stack/run_tcp_cursor.rs"
 
-[[example]]
-name = "netbricks_tcp.rs"
-path = "protocol_stack/netbricks_tcp.rs"
