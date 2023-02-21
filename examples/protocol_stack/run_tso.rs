@@ -480,6 +480,7 @@ fn main() {
   let args = Flags::parse();
   assert!(args.mtu > ETHER_HEADER_LEN + IPV4_HEADER_LEN + 60);
   unsafe {MSS = (args.mtu - ETHER_HEADER_LEN - IPV4_HEADER_LEN - 60) as u64};
+  println!("MSS size: {}",unsafe {MSS});
   if !args.client {
     println!("start server");
     server_start(&args);
