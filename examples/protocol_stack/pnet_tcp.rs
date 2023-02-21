@@ -10,7 +10,7 @@ use common::{stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber}}, Prod
 use pnet::packet::{ipv4::*, MutablePacket, Packet};
 use pnet::packet::tcp::*;
 use pnet::packet::ethernet::*;
-use run_packet::Buf;
+use run_packet::{Buf, ether::ETHER_HEADER_LEN, tcp::TCP_HEADER_LEN, ipv4::IPV4_HEADER_LEN};
 
 #[derive(Parser)]
 struct Flags {
@@ -458,17 +458,16 @@ fn server_start(args:&Flags) {
 
 
   let processer = PnetTcpPacketProcesser{};
-  let mut device = common::DpdkDevice::new(SERVER_PORT_ID).unwrap();
   let mut stack = common::stack::tcp::TcpStack::new(
     sender, recver, 
     processer, 
     args.buffer as usize, 
     64);
   
-  stack.set_mtu(args.mtu);
+  stack.set_mss(args.mtu - ETHER_HEADER_LEN - 60 - IPV4_HEADER_LEN);
   stack.bind(SERVER_LOCAL_IPV4, SERVER_PORT, SERVER_LOCAL_MAC);
   stack.listen(SERVER_REMOTE_IPV4, CLIENT_PORT, SERVER_REMOTE_MAC);
-  common::poll(run,&mut device, &mut stack);
+  common::poll(run,0, &mut stack);
   jh.join().unwrap();
 }
 
@@ -541,17 +540,16 @@ fn client_start(args:&Flags) {
   });
 
   let processer = PnetTcpPacketProcesser{};
-  let mut device = common::DpdkDevice::new(CLIENT_PORT_ID).unwrap();
   let mut stack = common::stack::tcp::TcpStack::new(
     sender, recver, 
     processer, 
     64, 
     args.buffer as usize);
   
-  stack.set_mtu(mtu);
+  stack.set_mss(mtu - ETHER_HEADER_LEN - 60 - IPV4_HEADER_LEN);
   stack.bind(CLINET_LOCAL_IPV4, CLIENT_PORT, CLIENT_LOCAL_MAC);
   stack.connect(CLIENT_REMOTE_IPV4, SERVER_PORT, CLIENT_REMOTE_MAC);
-  common::poll(run,&mut device, &mut stack);
+  common::poll(run,3, &mut stack);
 
   jh.join().unwrap();
 }

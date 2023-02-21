@@ -234,7 +234,7 @@ impl Mbuf {
             fst_seg.extend_from_slice(&source[..cap]);
             Self::from_slice_slow(&source[cap..], mempool, fst_seg, cap)
         }
-    }
+    } 
 
     #[inline]
     pub fn chain(&mut self, other: Mbuf) {

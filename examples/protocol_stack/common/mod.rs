@@ -7,6 +7,7 @@ pub mod stack;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use arrayvec::ArrayVec;
 pub use device::DpdkDevice;
 
 
@@ -36,8 +37,7 @@ pub trait Stack {
   
   fn has_data(&mut self,ts:smoltcp::time::Instant) -> bool;
   
-  fn do_send<F>(&mut self,pkt:run_dpdk::Mbuf,ts:smoltcp::time::Instant,emit:F)
-        where F: FnOnce(run_dpdk::Mbuf) -> bool;
+  fn do_send(&mut self,mp:&mut run_dpdk::Mempool,ts:smoltcp::time::Instant,txq:&mut run_dpdk::TxQueue);
 }
 
 
@@ -49,59 +49,114 @@ pub trait Consumer {
   fn consume(&mut self,size:usize) -> &mut [u8];
 }
 
+fn init_eal(port_id:u16) -> bool {
+  match run_dpdk::DpdkOption::new().enable_quiet().init() {
+    Err(err) => {
+      log::log!(log::Level::Error,"EAL INIT {}",err);
+      return false;
+    },
+    _ => ()
+  };
+  let nb_qs = 1;
+  let mp_name = "mp";
 
-pub fn poll<S:Stack,P:Device>(run: Arc<AtomicBool>, dev:&mut P,stack:&mut S) {
+  let mut mconf = run_dpdk::MempoolConf::default();
+  mconf.nb_mbufs = 8192 * 4;
+  mconf.per_core_caches = 256;
+  mconf.socket_id = 0;
+
+  let mut rxq_conf = run_dpdk::RxQueueConf::default();
+  rxq_conf.mp_name = "mp".to_string();
+  rxq_conf.nb_rx_desc = 1024;
+  rxq_conf.socket_id = 0;
+  
+  let mut txq_conf = run_dpdk::TxQueueConf::default();
+  txq_conf.nb_tx_desc = 1024;
+  txq_conf.socket_id = 0;
+
+  return init_port(port_id, nb_qs, mp_name, &mut mconf, &mut rxq_conf, &mut txq_conf);
+}
+
+fn init_port(port_id: u16,
+  nb_qs: u32,
+  mp_name: &'static str,
+  mpconf: &mut run_dpdk::MempoolConf,
+  rxq_conf: &mut run_dpdk::RxQueueConf,
+  txq_conf: &mut run_dpdk::TxQueueConf) -> bool {
+  
+  let port_infos = run_dpdk::service().port_infos().unwrap();
+  let port_info = &port_infos[port_id as usize];
+  let socket_id = port_info.socket_id;
+
+  mpconf.socket_id = socket_id;
+  match run_dpdk::service().mempool_create(mp_name, mpconf) {
+    Ok(_) => (),
+    Err(err) => {
+      log::log!(log::Level::Error,"failed to create mempool `{}` : {}",mp_name,err);
+      return false;
+    }
+  };
+
+  let pconf = run_dpdk::PortConf::from_port_info(port_info).unwrap();
+
+  rxq_conf.mp_name = mp_name.to_string();
+  rxq_conf.socket_id = socket_id;
+  txq_conf.socket_id = socket_id;
+
+  let mut rxq_confs = Vec::new();
+  let mut txq_confs = Vec::new();
+
+  for _ in 0..nb_qs {
+    rxq_confs.push(rxq_conf.clone());
+    txq_confs.push(txq_conf.clone());
+  }
+
+  match run_dpdk::service()
+            .port_configure(port_id, &pconf, &rxq_confs, &txq_confs) {
+    Ok(_) =>(),
+    Err(err) => {
+      log::log!(log::Level::Error,"failed to configure port `{}` : {}",port_id,err);
+      return false;
+    }
+  }
+
+  println!("finish configuration p{}", port_id);
+  true
+}
+
+pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S) {
+  if init_eal(port_id) {
+    run.store(false, std::sync::atomic::Ordering::Relaxed);
+    return;
+  }
+
+  let mut rxq = run_dpdk::service().rx_queue(port_id, 0).unwrap();
+  let mut txq = run_dpdk::service().tx_queue(port_id, 0).unwrap();
+  let mut mp = run_dpdk::service().mempool("mp").unwrap();
+  let mut batch:ArrayVec<Mbuf, 32> = ArrayVec::new();
+  let mut rbatch:ArrayVec<Mbuf,64> = ArrayVec::new();
+  
   while run.load(std::sync::atomic::Ordering::Relaxed) {
     let ts = smoltcp::time::Instant::now();
-    if let Some(pkt) = dev.recv() {
-      if let Some(response) = stack.on_recv(pkt, ts) {
-        dev.send(response);
+    rxq.rx(&mut batch);
+    for mbuf in batch.drain(..) {
+      if let Some(resp) = stack.on_recv(mbuf, ts) {
+        unsafe {
+          rbatch.push_unchecked(resp);
+        }
       }
     }
+    while !rbatch.is_empty() {
+      txq.tx(&mut rbatch);
+    }
+
     if stack.has_data(ts) {
-      log::log!(log::Level::Trace,"stack has data to send");
-      if let Some(pkt) = dev.alloc() {
-        stack.do_send(pkt,ts,|mbuf| {
-          dev.send(mbuf).is_none()
-        });
-      }
+      stack.do_send(&mut mp, ts, &mut txq);
     }
   }
 }
 
-pub fn poll_in_batch<S,P,const N:usize>(run: Arc<AtomicBool>,dev:&mut P,stack:&mut S) 
-where 
-  S: Stack,
-  P: Batch + Device {
-  while run.load(std::sync::atomic::Ordering::Relaxed) {
-    let ts = smoltcp::time::Instant::now();
-    let mut recv_batch:arrayvec::ArrayVec<run_dpdk::Mbuf,N> = 
-                                                    arrayvec::ArrayVec::new();
-    let mut resp_batch:arrayvec::ArrayVec<run_dpdk::Mbuf,N> = 
-                                                    arrayvec::ArrayVec::new();
-    let mut send_batch:arrayvec::ArrayVec<run_dpdk::Mbuf,N> = 
-                                                    arrayvec::ArrayVec::new();
-    dev.recv_batch(&mut recv_batch);
-    for pkt in recv_batch.into_iter() {
-      if let Some(response) = stack.on_recv(pkt, ts) {
-        resp_batch.push(response);
-      }
-    }
-    dev.send_batch(&mut resp_batch);
-    assert_eq!(resp_batch.len(),0);
-    dev.alloc_batch(&mut resp_batch);
-    for mbuf in resp_batch.into_iter() {
-      stack.do_send(mbuf, ts, |mbuf| {
-        send_batch.push(mbuf);
-        true
-      })
-    }
-    dev.send_batch(&mut send_batch);
-  }
-}
-
-
-
+use run_dpdk::Mbuf;
 pub use run_packet::ether::ETHER_HEADER_LEN;
 pub use run_packet::ipv4::IPV4_HEADER_LEN;
 pub use run_packet::tcp::TCP_HEADER_LEN;

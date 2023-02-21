@@ -8,6 +8,13 @@ mod timer;
 mod ack_delay_timer;
 
 
+use arrayvec::ArrayVec;
+use run_dpdk::Mbuf;
+use run_dpdk::Mempool;
+use run_dpdk::Pbuf;
+use run_dpdk::TxQueue;
+use run_packet::PktBuf;
+use run_packet::PktMut;
 pub use tcp_repr::TcpRepr;
 pub use tcp_ctrl::TcpControl;
 pub use seq_number::TcpSeqNumber;
@@ -37,7 +44,9 @@ where
   remote_mac:run_packet::ether::MacAddr,
   remote_port:u16,
   remote_ipv4:run_packet::ipv4::Ipv4Addr,
-  mtu:usize,
+  mss:usize,
+  tso:bool,
+  lro:bool,
   producer:P,
   consumer:C,
   packet_processer:PACKETPROCCER,
@@ -95,7 +104,9 @@ where
       remote_mac:run_packet::ether::MacAddr::default(),
       remote_port:0,
       remote_ipv4:run_packet::ipv4::Ipv4Addr::default(),
-      mtu:1515,
+      mss:1400,
+      tso:false,
+      lro:false,
       producer:p,
       consumer:c,
       packet_processer:processer,
@@ -133,8 +144,16 @@ where
     }
   }
 
-  pub fn set_mtu(&mut self,mtu:usize) {
-    self.mtu = mtu;
+  pub fn set_mss(&mut self,mss:usize) {
+    self.mss = mss;
+  }
+  
+  pub fn enable_tso(&mut self) {
+    self.tso = true;
+  }
+
+  pub fn enable_lro(&mut self) {
+    self.lro = true;
   }
 
   pub fn bind(&mut self,ipv4:run_packet::ipv4::Ipv4Addr,port:u16,mac:run_packet::ether::MacAddr) {
@@ -278,10 +297,7 @@ where
   }
 
   fn seq_to_transmit(&self) -> bool {
-    let local_mss = self.mtu 
-                    - run_packet::ipv4::IPV4_HEADER_LEN 
-                    - run_packet::tcp::TCP_HEADER_LEN 
-                    - run_packet::ether::ETHER_HEADER_LEN;
+    let local_mss = self.mss;
 
     let effective_mss = local_mss.min(self.remote_mss);
     let data_in_flight = self.remote_last_seq != self.local_seq_no;
@@ -318,9 +334,7 @@ where
     can_send || can_fin
   }
 
-  fn build<F>(&mut self,mut mbuf:run_dpdk::Mbuf,ts:smoltcp::time::Instant,emit:F)
-  where 
-    F:FnOnce(run_dpdk::Mbuf) -> bool {
+  fn build(&mut self,mp:&mut Mempool,ts:smoltcp::time::Instant,txq:&mut TxQueue) {
     let mut repr = tcp_repr::TcpRepr {
       ctrl:tcp_ctrl::TcpControl::None,
       seq_number: self.remote_last_seq,
@@ -331,6 +345,7 @@ where
       sack_permitted:false,
       sack_ranges:[None,None,None],
     };
+
     log::log!(log::Level::Trace,"remote_seq_no:{} + rx_buffer len:{}",self.remote_seq_no,self.rx_buffer.len());
     //println!("scaled window length: {}",self.scaled_window());
     let router_info = super::RouterInfo {
@@ -341,6 +356,8 @@ where
       src_ipv4:self.local_ipv4,
       src_port:self.local_port
     };
+    
+    let mut batch:ArrayVec<Mbuf,1> = ArrayVec::new();
     // We transmit data in all states where we may have data in 
     // the buffer, or the transmit half of the connection is still
     // open
@@ -390,18 +407,20 @@ where
         // 1. remote window
         // 2. MSS the remote is willing to accept, probably determined by their MTU
         // 3. MSS we can send
-        let max_payload_len = self.mtu 
-                                     - run_packet::ether::ETHER_HEADER_LEN 
-                                     - run_packet::tcp::TCP_HEADER_LEN 
-                                     - run_packet::ipv4::IPV4_HEADER_LEN;
+        let max_payload_len = if self.tso {
+          win_limit.min(self.tx_buffer.cap())
+        } else {
+          win_limit.min(self.remote_mss)
+                   .min(self.mss)
+        };
         //println!("max_payload_len {}",max_payload_len);
-        let size = win_limit
+        /* let size = win_limit
                                 .min(self.remote_mss)
-                                .min(max_payload_len);
+                                .min(max_payload_len); */
         //println!("remote mss: {}",self.remote_mss);
         //println!("win limit: {}",win_limit);
         //println!("max size: {}",size);
-        let offset = self.remote_last_seq - self.local_seq_no;
+        let mut offset = self.remote_last_seq - self.local_seq_no;
         //println!("offset {}",offset);        
 
         // Actual size we're allowed to send. This can be limited by 2 factors:
@@ -410,18 +429,43 @@ where
         let payload_len = if offset >= self.tx_buffer.len() {
           0
         } else {
-          size.min(self.tx_buffer.len() - offset)
+          max_payload_len.min(self.tx_buffer.len() - offset)
         };
         //println!("tx_buffer len: {}",self.tx_buffer.len());
         // extend mbuf data
-        unsafe {
-          mbuf.extend(payload_len);
-        }
-        // fill data to mbuf
-        let sent = self.tx_buffer.read_allocated(offset, &mut mbuf.data_mut());
         
-        assert_eq!(sent,payload_len);
-        assert_eq!(mbuf.len(),sent);
+        let mut fst_seg = mp.try_alloc().unwrap();
+        if payload_len < fst_seg.capacity() {
+          unsafe {
+            fst_seg.extend(payload_len);
+          }
+          assert_eq!(self.tx_buffer.read_allocated(offset, fst_seg.data_mut()),payload_len);
+        } else {
+          unsafe {
+            fst_seg.extend(fst_seg.capacity());
+          }
+          assert_eq!(self.tx_buffer.read_allocated(offset, fst_seg.data_mut()),fst_seg.capacity());
+          offset += fst_seg.capacity();
+
+          let mut sent = fst_seg.capacity();
+          let mut appender = fst_seg.appender();
+          while sent != payload_len {
+            let mut mbuf = mp.try_alloc().unwrap();
+            let extend_size = mbuf.capacity().min(payload_len - sent);
+            unsafe {
+              mbuf.extend(extend_size);
+            }
+            assert_eq!(self.tx_buffer.read_allocated(offset, mbuf.data_mut()),extend_size);
+            offset += extend_size;
+            sent += extend_size;
+            appender.append_seg(mbuf);
+          }
+        }
+        assert_eq!(fst_seg.len(),payload_len);
+        
+        unsafe {
+          batch.push_unchecked(fst_seg);
+        }
 
         log::log!(log::Level::Trace,
           "tcp: `{}:{}` <==> `{}:{}`: prepare {} bytes payload to send",
@@ -429,14 +473,14 @@ where
           self.local_port,
           self.remote_ipv4,
           self.remote_port,
-          sent);
+          payload_len);
 
-        if offset + sent == self.tx_buffer.len() {
+        if offset + payload_len == self.tx_buffer.len() {
           match self.state {
             state::TcpState::FinWait1 | state::TcpState::LastAck | state::TcpState::Closing => {
               repr.ctrl = tcp_ctrl::TcpControl::Fin;
             },
-            state::TcpState::Established | state::TcpState::CloseWait if !(sent == 0) => {
+            state::TcpState::Established | state::TcpState::CloseWait if !(payload_len == 0) => {
               repr.ctrl = tcp_ctrl::TcpControl::Psh;
             },
             _ => (),
@@ -447,10 +491,14 @@ where
     }
 
     let is_keep_alive;
-    if self.timer.should_keep_alive(ts) && mbuf.len() == 0 {
+    if self.timer.should_keep_alive(ts) && batch.is_empty() {
       repr.seq_number = repr.seq_number - 1;
       // RFC 1122
-      mbuf.extend_from_slice(b"\x00");
+      let mut mbuf = mp.try_alloc().unwrap();
+      unsafe {
+        mbuf.extend_from_slice(b"\x00");
+        batch.push_unchecked(mbuf);
+      };
       is_keep_alive = true;
     } else {
       is_keep_alive = false;
@@ -463,18 +511,18 @@ where
         self.local_port,
         self.remote_ipv4,
         self.remote_port);
-    } else if mbuf.len() != 0 {
+    } else if !batch.is_empty() {
       log::log!(log::Level::Trace,
         "tcp: `{}:{}` <==> `{}:{}`: tx_buffer: sending {} octets at offset {}",
         self.local_ipv4,
         self.local_port,
         self.remote_ipv4,
         self.remote_port,
-        mbuf.len(),
+        batch[0].len(),
         self.remote_last_seq - self.local_seq_no);
     }
 
-    if repr.ctrl != tcp_ctrl::TcpControl::None || mbuf.len() == 0 {
+    if repr.ctrl != tcp_ctrl::TcpControl::None || batch.is_empty() {
       let flags = match (repr.ctrl,repr.ack_number) {
         (tcp_ctrl::TcpControl::Syn, None) => "SYN",
         (tcp_ctrl::TcpControl::Syn, Some(_)) => "SYN|ACK",
@@ -494,25 +542,16 @@ where
     }
 
     if repr.ctrl == tcp_ctrl::TcpControl::Syn {
-      let max_segment_size = self.mtu 
-                                    - run_packet::ether::ETHER_HEADER_LEN 
-                                    - run_packet::tcp::TCP_HEADER_LEN 
-                                    - run_packet::ipv4::IPV4_HEADER_LEN;
+      let max_segment_size = self.mss;
       repr.max_seg_size = Some(max_segment_size as u16);
     }
 
-    let segment_len = mbuf.len() + repr.ctrl.len();
+    let segment_len = batch[0].len() + repr.ctrl.len();
 
-    self.packet_processer.build(&mut mbuf,&repr,&router_info);
+    self.packet_processer.build(&mut batch[0],&repr,&router_info);
 
-    if !emit(mbuf) {
-      log::log!(log::Level::Trace,
-        "tcp: `{}:{}` <==> `{}:{}`: failed to send packet",
-        self.local_ipv4,
-        self.local_port,
-        self.remote_ipv4,
-        self.remote_port);
-      return;
+    while !batch.is_empty() {
+      txq.tx(&mut batch);
     }
 
     self.timer.rewind_keep_alive(ts,self.keep_alive);
@@ -1426,11 +1465,9 @@ where
     self.local_port == 0  
   }
 
-  fn do_send<F>(&mut self,pkt:run_dpdk::Mbuf,ts:smoltcp::time::Instant,emit:F) 
-  where
-    F:FnOnce(run_dpdk::Mbuf) -> bool {
+  fn do_send(&mut self,mp:&mut Mempool,ts:smoltcp::time::Instant,txq:&mut TxQueue)  {
     self.pull_data_from_producer();
-    self.build(pkt,ts,emit);
+    self.build(mp,ts,txq);
   }
   
   fn has_data(&mut self,ts:smoltcp::time::Instant) -> bool {

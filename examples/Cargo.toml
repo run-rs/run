@@ -85,3 +85,6 @@ path = "protocol_stack/smol_tcp.rs"
 name = "run_tcp_cursor"
 path = "protocol_stack/run_tcp_cursor.rs"
 
+[[example]]
+name = "run_tso"
+path = "protocol_stack/run_tso.rs"
