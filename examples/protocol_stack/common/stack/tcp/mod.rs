@@ -917,7 +917,7 @@ where
     let segment_start = repr.seq_number;
     let ctrl_len = match repr.ctrl {
       tcp_ctrl::TcpControl::Fin 
-      | tcp_ctrl::TcpControl::Syn => { assert_eq!(payload.len(),0); 1},
+      | tcp_ctrl::TcpControl::Syn => { /* assert_eq!(payload.len(),0); */ 1}, // payload maybe not zero
       _ => 0
     };
     let segment_end = repr.seq_number + ctrl_len + payload.len();

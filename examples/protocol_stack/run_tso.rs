@@ -170,6 +170,17 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     tcppkt.set_checksum(0);
     //tcppkt.adjust_ipv4_checksum(router_info.src_ipv4, router_info.dest_ipv4);
 
+    println!("send a tcp packet:");
+    println!("  ack: {}",if tcppkt.ack() {
+      tcppkt.ack_number().to_string()
+    } else {
+      String::from_str("None").unwrap()
+    });
+    println!("  window size: {}",tcppkt.window_size());
+    println!("  seq number: {}",tcppkt.seq_number());
+    println!("  header len: {}",tcppkt.header_len());
+    println!("  payload len: {}",payload_len);
+
     // build ip packet
     let mut ippkt = Ipv4Packet::prepend_header(tcppkt.release(), &IPV4_HEADER_TEMPLATE);
     ippkt.set_time_to_live(64);
@@ -185,7 +196,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     ethpkt.set_source_mac(router_info.src_mac);
     ethpkt.set_ethertype(EtherType::IPV4);
 
-
+    log::log!(log::Level::Trace,"send {} bytes",mbuf.len());
     let mut of_flag = run_dpdk::offload::MbufTxOffload::ALL_DISABLED;
     of_flag.enable_ip_cksum();
     of_flag.enable_tcp_cksum();
@@ -194,6 +205,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     of_flag.set_l4_len(header_len as u64);
     of_flag.enable_tcp_tso(unsafe {MSS});
 
+    mbuf.set_tx_offload(&of_flag);
   }
 
   fn parse(&mut self,mbuf:&mut run_dpdk::Mbuf) 
@@ -277,7 +289,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       }
       options = next_options;
     }
-    /*println!("received a tcp packet:");
+    println!("received a tcp packet:");
     println!("  ack: {}",match tcprepr.ack_number {
       Some(v) => v.0.to_string(),
       _ => String::from_str("None").unwrap(),
@@ -286,7 +298,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     println!("  window size: {}",tcprepr.window_len);
     println!("  header len: {}",tcppkt.header_len());
     println!("  payload len: {}",tcppkt.payload().chunk().len());
-    println!("  dest mac: {}",route_info.dest_ipv4);*/
+    println!("  dest mac: {}",route_info.dest_ipv4);
     mbuf.truncate(total_packet_len as usize);
     Some((tcprepr,route_info,payload_offset))
   }
