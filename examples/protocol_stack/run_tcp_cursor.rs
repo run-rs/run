@@ -378,7 +378,7 @@ fn server_start(args:&Flags) {
   stack.set_mss(args.mtu - ETHER_HEADER_LEN - 60 - IPV4_HEADER_LEN);
   stack.bind(SERVER_LOCAL_IPV4, SERVER_PORT, SERVER_LOCAL_MAC);
   stack.listen(SERVER_REMOTE_IPV4, CLIENT_PORT, SERVER_REMOTE_MAC);
-  common::poll(run,0, &mut stack);
+  common::poll(run,0, &mut stack,common::OFFLOAD::NONE);
   jh.join().unwrap();
 }
 
@@ -460,7 +460,7 @@ fn client_start(args:&Flags) {
   stack.set_mss(mtu - ETHER_HEADER_LEN - IPV4_HEADER_LEN - 60);
   stack.bind(CLINET_LOCAL_IPV4, CLIENT_PORT, CLIENT_LOCAL_MAC);
   stack.connect(CLIENT_REMOTE_IPV4, SERVER_PORT, CLIENT_REMOTE_MAC);
-  common::poll(run,3, &mut stack);
+  common::poll(run,3, &mut stack,common::OFFLOAD::NONE);
 
   jh.join().unwrap();
 }

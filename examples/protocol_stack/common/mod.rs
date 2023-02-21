@@ -49,7 +49,7 @@ pub trait Consumer {
   fn consume(&mut self,size:usize) -> &mut [u8];
 }
 
-fn init_eal(port_id:u16) -> bool {
+fn init_eal(port_id:u16,offload:OFFLOAD) -> bool {
   match run_dpdk::DpdkOption::new().enable_quiet().init() {
     Err(err) => {
       log::log!(log::Level::Error,"EAL INIT {}",err);
@@ -74,7 +74,7 @@ fn init_eal(port_id:u16) -> bool {
   txq_conf.nb_tx_desc = 1024;
   txq_conf.socket_id = 0;
 
-  return init_port(port_id, nb_qs, mp_name, &mut mconf, &mut rxq_conf, &mut txq_conf);
+  return init_port(port_id, nb_qs, mp_name, &mut mconf, &mut rxq_conf, &mut txq_conf,offload);
 }
 
 fn init_port(port_id: u16,
@@ -82,12 +82,23 @@ fn init_port(port_id: u16,
   mp_name: &'static str,
   mpconf: &mut run_dpdk::MempoolConf,
   rxq_conf: &mut run_dpdk::RxQueueConf,
-  txq_conf: &mut run_dpdk::TxQueueConf) -> bool {
+  txq_conf: &mut run_dpdk::TxQueueConf,
+  offload: OFFLOAD) -> bool {
   
   let port_infos = run_dpdk::service().port_infos().unwrap();
   let port_info = &port_infos[port_id as usize];
   let socket_id = port_info.socket_id;
 
+
+  let tso = offload == OFFLOAD::TSO;
+  let lro = offload == OFFLOAD::LRO;
+  let ipv4_csum = offload == OFFLOAD::TSO || 
+                        offload == OFFLOAD::IPV4_CSUM || 
+                        offload == OFFLOAD::IPV4_TCP_CSUM;
+  let tcp_csum = offload == OFFLOAD::TSO ||
+                       offload == OFFLOAD::IPV4_TCP_CSUM ||
+                       offload == OFFLOAD::TCP_CSUM;
+  
   mpconf.socket_id = socket_id;
   match run_dpdk::service().mempool_create(mp_name, mpconf) {
     Ok(_) => (),
@@ -97,7 +108,27 @@ fn init_port(port_id: u16,
     }
   };
 
-  let pconf = run_dpdk::PortConf::from_port_info(port_info).unwrap();
+  let mut pconf = run_dpdk::PortConf::from_port_info(port_info).unwrap();
+
+  if tso {
+    pconf.tx_offloads.enable_multi_segs();
+    pconf.tx_offloads.enable_tcp_tso();
+    pconf.rx_offloads.enable_scatter();
+  }
+
+  if lro {
+    pconf.rx_offloads.enable_tcp_lro();
+  }
+
+  if ipv4_csum {
+    pconf.tx_offloads.enable_ipv4_cksum();
+    pconf.rx_offloads.enable_ipv4_cksum();
+  }
+
+  if tcp_csum {
+    pconf.tx_offloads.enable_tcp_cksum();
+    pconf.rx_offloads.enable_tcp_cksum();
+  }
 
   rxq_conf.mp_name = mp_name.to_string();
   rxq_conf.socket_id = socket_id;
@@ -124,8 +155,18 @@ fn init_port(port_id: u16,
   true
 }
 
-pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S) {
-  if init_eal(port_id) {
+#[derive(PartialEq, Eq)]
+pub enum OFFLOAD {
+  NONE,
+  TSO,
+  LRO,
+  IPV4_CSUM,
+  TCP_CSUM,
+  IPV4_TCP_CSUM
+}
+
+pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S,offload:OFFLOAD) {
+  if init_eal(port_id,offload) {
     run.store(false, std::sync::atomic::Ordering::Relaxed);
     return;
   }

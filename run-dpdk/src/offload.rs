@@ -61,6 +61,7 @@ pub struct MbufTxOffload {
     pub(crate) tx_offload: u64,
     pub(crate) l2_len: u64,
     pub(crate) l3_len: u64,
+    pub(crate) l4_len: u64,
 }
 
 impl MbufTxOffload {
