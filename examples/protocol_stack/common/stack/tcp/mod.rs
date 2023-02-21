@@ -546,6 +546,11 @@ where
       repr.max_seg_size = Some(max_segment_size as u16);
     }
 
+    if batch.is_empty() {
+      let mbuf = mp.try_alloc().unwrap();
+      batch.push(mbuf);
+    }
+
     let segment_len = batch[0].len() + repr.ctrl.len();
 
     self.packet_processer.build(&mut batch[0],&repr,&router_info);

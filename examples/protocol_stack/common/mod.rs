@@ -50,7 +50,7 @@ pub trait Consumer {
 }
 
 fn init_eal(port_id:u16,offload:OFFLOAD) -> bool {
-  match run_dpdk::DpdkOption::new().enable_quiet().init() {
+  match run_dpdk::DpdkOption::new().init() {
     Err(err) => {
       log::log!(log::Level::Error,"EAL INIT {}",err);
       return false;
@@ -166,7 +166,7 @@ pub enum OFFLOAD {
 }
 
 pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S,offload:OFFLOAD) {
-  if init_eal(port_id,offload) {
+  if !init_eal(port_id,offload) {
     run.store(false, std::sync::atomic::Ordering::Relaxed);
     return;
   }
@@ -177,7 +177,7 @@ pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S,offload:OFFL
   let mut batch:ArrayVec<Mbuf, 32> = ArrayVec::new();
   let mut rbatch:ArrayVec<Mbuf,64> = ArrayVec::new();
   
-  
+
   while run.load(std::sync::atomic::Ordering::Relaxed) {
     let ts = smoltcp::time::Instant::now();
     rxq.rx(&mut batch);
