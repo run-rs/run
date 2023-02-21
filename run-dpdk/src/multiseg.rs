@@ -168,6 +168,16 @@ impl Mbuf {
                 .__bindgen_anon_3
                 .__bindgen_anon_1
                 .set_l3_len(tx_offload.l3_len);
+            self.ptr
+                .as_mut()
+                .__bindgen_anon_3
+                .__bindgen_anon_1
+                .set_tso_segsz(tx_offload.segsz);
+            self.ptr
+                .as_mut()
+                .__bindgen_anon_3
+                .__bindgen_anon_1
+                .set_l4_len(tx_offload.l4_len);
         }
     }
 

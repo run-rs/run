@@ -188,9 +188,10 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     let mut of_flag = run_dpdk::offload::MbufTxOffload::ALL_DISABLED;
     of_flag.enable_ip_cksum();
     of_flag.enable_tcp_cksum();
-    of_flag.set_l2_len(ETHER_HEADER_LEN);
-    of_flag.set_l3_len(IPV4_HEADER_LEN);
-    of_flag.set_l4_len(header_len);
+    of_flag.set_l2_len(ETHER_HEADER_LEN as u64);
+    of_flag.set_l3_len(IPV4_HEADER_LEN as u64);
+    of_flag.set_l4_len(header_len as u64);
+    of_flag.enable_tcp_tso(unsafe {MSS});
 
   }
 
@@ -367,7 +368,7 @@ fn server_start(args:&Flags) {
     args.buffer as usize, 
     64);
   
-  stack.set_mss(args.mtu - ETHER_HEADER_LEN - 60 - IPV4_HEADER_LEN);
+  stack.set_mss(unsafe {MSS as usize});
   stack.bind(SERVER_LOCAL_IPV4, SERVER_PORT, SERVER_LOCAL_MAC);
   stack.listen(SERVER_REMOTE_IPV4, CLIENT_PORT, SERVER_REMOTE_MAC);
   common::poll(run,0, &mut stack,common::OFFLOAD::NONE);
@@ -449,7 +450,7 @@ fn client_start(args:&Flags) {
     64, 
     args.buffer as usize);
   
-  stack.set_mss(mtu - ETHER_HEADER_LEN - IPV4_HEADER_LEN - 60);
+  stack.set_mss(unsafe {MSS as usize});
   stack.enable_tso();
   stack.bind(CLINET_LOCAL_IPV4, CLIENT_PORT, CLIENT_LOCAL_MAC);
   stack.connect(CLIENT_REMOTE_IPV4, SERVER_PORT, CLIENT_REMOTE_MAC);
@@ -469,12 +470,15 @@ const SERVER_LOCAL_IPV4:Ipv4Addr = Ipv4Addr([192,168,23,2]);
 const SERVER_REMOTE_IPV4:Ipv4Addr = Ipv4Addr([192,168,22,2]);
 const SERVER_LOCAL_MAC:MacAddr = MacAddr([0x10, 0x70, 0xfd, 0x15, 0x77, 0xc1]);
 const SERVER_REMOTE_MAC:MacAddr = MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]);
-
 const DATA_FILE_NAME:&str = "./data/run_tso.csv";
+
+static mut MSS:u64 = 0u64;
 
 fn main() {
   env_logger::init();
   let args = Flags::parse();
+  assert!(args.mtu > ETHER_HEADER_LEN + IPV4_HEADER_LEN + 60);
+  unsafe {MSS = (args.mtu - ETHER_HEADER_LEN - IPV4_HEADER_LEN - 60) as u64};
   if !args.client {
     println!("start server");
     server_start(&args);

@@ -62,12 +62,14 @@ pub struct MbufTxOffload {
     pub(crate) l2_len: u64,
     pub(crate) l3_len: u64,
     pub(crate) l4_len: u64,
+    pub(crate) segsz:u64,
 }
 
 impl MbufTxOffload {
     const IP_CKSUM: u64 = 1 << 54;
     const UDP_CKSUM: u64 = 3 << 52;
     const TCP_CKSUM: u64 = 1 << 52;
+    const TCP_TSO: u64 = 1 << 50;
 
     pub fn enable_ip_cksum(&mut self) {
         self.tx_offload = self.tx_offload | Self::IP_CKSUM;
@@ -89,9 +91,20 @@ impl MbufTxOffload {
         self.l3_len = val;
     }
 
+    pub fn set_l4_len(&mut self,val: u64) {
+        self.l4_len = val;
+    }
+
+    pub fn enable_tcp_tso(&mut self,segsz:u64) {
+        self.segsz = segsz;
+        self.tx_offload = self.tx_offload | Self::TCP_TSO;
+    }
+
     pub const ALL_DISABLED: Self = Self {
         tx_offload: 0,
         l2_len: 0,
         l3_len: 0,
+        l4_len: 4,
+        segsz:0,
     };
 }
