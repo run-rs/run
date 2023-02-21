@@ -167,7 +167,8 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       }
     }
 
-    tcppkt.adjust_ipv4_checksum(router_info.src_ipv4, router_info.dest_ipv4);
+    tcppkt.set_checksum(0);
+    //tcppkt.adjust_ipv4_checksum(router_info.src_ipv4, router_info.dest_ipv4);
 
     // build ip packet
     let mut ippkt = Ipv4Packet::prepend_header(tcppkt.release(), &IPV4_HEADER_TEMPLATE);
@@ -176,7 +177,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     ippkt.set_dest_ip(router_info.dest_ipv4);
     ippkt.set_source_ip(router_info.src_ipv4);
     ippkt.set_ident(0x5c65);
-    ippkt.adjust_checksum();
+    ippkt.set_checksum(0);
 
     // build ethernet packet
     let mut ethpkt = EtherPacket::prepend_header(ippkt.release(), &ETHER_HEADER_TEMPLATE);

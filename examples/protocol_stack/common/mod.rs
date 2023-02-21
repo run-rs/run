@@ -182,6 +182,7 @@ pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S,offload:OFFL
     let ts = smoltcp::time::Instant::now();
     rxq.rx(&mut batch);
     for mbuf in batch.drain(..) {
+      log::log!(log::Level::Trace,"received a packet, diliver to stack");
       if let Some(resp) = stack.on_recv(mbuf, ts) {
         unsafe {
           rbatch.push_unchecked(resp);

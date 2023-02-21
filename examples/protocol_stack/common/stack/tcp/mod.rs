@@ -435,6 +435,7 @@ where
         // extend mbuf data
         
         let mut fst_seg = mp.try_alloc().unwrap();
+        let cap = fst_seg.capacity();
         if payload_len < fst_seg.capacity() {
           unsafe {
             fst_seg.extend(payload_len);
@@ -444,10 +445,10 @@ where
           unsafe {
             fst_seg.extend(fst_seg.capacity());
           }
-          assert_eq!(self.tx_buffer.read_allocated(offset, fst_seg.data_mut()),fst_seg.capacity());
-          offset += fst_seg.capacity();
+          assert_eq!(self.tx_buffer.read_allocated(offset, fst_seg.data_mut()),cap);
+          offset += cap;
 
-          let mut sent = fst_seg.capacity();
+          let mut sent = cap;
           let mut appender = fst_seg.appender();
           while sent != payload_len {
             let mut mbuf = mp.try_alloc().unwrap();
