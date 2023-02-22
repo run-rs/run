@@ -258,7 +258,7 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
       }
       options = next_options;
     }
-    if (total_packet_len as usize) >= mbuf.len() {
+    if (total_packet_len as usize) <= mbuf.len() {
       mbuf.truncate(total_packet_len as usize);
     }
     Some((tcprepr,route_info,payload_offset))

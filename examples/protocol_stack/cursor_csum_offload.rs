@@ -322,7 +322,7 @@ fn client_start(args:&Flags) {
     // wait for connection
     std::thread::sleep(Duration::from_secs(5));
     sent_bytes.store(0, std::sync::atomic::Ordering::Relaxed);
-    let mut max_secs = 60;
+    let mut max_secs = 600;
     while run_clone.load(std::sync::atomic::Ordering::Relaxed) {
       if max_secs == 0 {
         break;

@@ -67,6 +67,14 @@ path = "dpdk/traffic_fwd.rs"
 name = "smol_traffic_fwd"
 path = "dpdk/smol_traffic_fwd.rs"
 
+[[example]]
+name = "tx_tcp"
+path = "dpdk/tx_tcp.rs"
+
+[[example]]
+name = "lro_test"
+path = "dpdk/lro_test.rs"
+
 
 [[example]]
 name = "pbuf"
