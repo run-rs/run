@@ -258,7 +258,7 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
       }
       options = next_options;
     }
-   
+     
     mbuf.truncate(total_packet_len as usize);
     Some((tcprepr,route_info,payload_offset))
   }
@@ -323,7 +323,7 @@ fn client_start(args:&Flags) {
     opt.append(true);
     opt.write(true);
     opt.create(true);
-    let mut file = match opt.open("./data/tcp.csv") {
+    let mut file = match opt.open("./data/tcp_csum.csv") {
       Ok(f) => f,
       Err(err) => {
         log::log!(log::Level::Error,"can not open `./data/tcp.csv`. \
