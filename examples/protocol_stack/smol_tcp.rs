@@ -6,6 +6,7 @@ use clap::Parser;
 
 use common::{stack::{RouterInfo, tcp::{TcpRepr, TcpControl}}, Producer};
 
+use run_packet::ether::ETHER_HEADER_LEN;
 use smoltcp::wire::*;
 use smoltcp::wire::EthernetAddress;
 
@@ -141,8 +142,10 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
     ipv4_pkt.set_src_addr(Ipv4Address(router_info.src_ipv4.0));
     ipv4_pkt.set_dst_addr(Ipv4Address(router_info.dest_ipv4.0));
     ipv4_pkt.set_checksum(0);
-    ipv4_pkt.fill_checksum();
-    
+    #[cfg(not(feature = "enable_csum_offload"))]
+    {
+      ipv4_pkt.fill_checksum();
+    }
     assert!(ipv4_pkt.payload_mut().len() >= header_len);
     let mut tcp_pkt = TcpPacket::new_unchecked(ipv4_pkt.payload_mut());
     tcp_pkt.set_dst_port(router_info.dest_port);
@@ -187,11 +190,23 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
         run_packet::tcp::TcpOption::EndOfList.build(options);
       }
     }
-    tcp_pkt.fill_checksum(&Ipv4Address(router_info.src_ipv4.0).into(),
+
+    #[cfg(not(feature = "enable_csum_offload"))]
+    { 
+      tcp_pkt.fill_checksum(&Ipv4Address(router_info.src_ipv4.0).into(),
                     &Ipv4Address(router_info.dest_ipv4.0).into());
-    /*println!("-------Send Packet------");
-    println!("{}",repr);
-    println!("  total packet len:{}",total_header_overhead + tcp_pkt.payload_mut().len());*/    
+    }
+    #[cfg(feature = "enable_csum_offload")]
+    {
+      
+      let mut of_flag = run_dpdk::offload::MbufTxOffload::ALL_DISABLED;
+      of_flag.enable_ip_cksum();
+      of_flag.enable_tcp_cksum();
+      of_flag.set_l2_len(ETHER_HEADER_LEN as u64);
+      of_flag.set_l3_len(IPV4_HEADER_LEN as u64);
+
+      mbuf.set_tx_offload(&of_flag);
+    } 
   }
 
   fn parse(&mut self,mbuf:&mut run_dpdk::Mbuf) 
@@ -207,6 +222,7 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
     route_info.src_mac = common::MacAddr(epkt.src_addr().0);
 
     let ip_pkt = Ipv4Packet::new_checked(epkt.payload()).ok()?;
+    #[cfg(feature = "enable_csum_offload")]
     if !ip_pkt.verify_checksum() {
         return None;
     }
@@ -217,6 +233,7 @@ impl common::stack::tcp::PacketProcesser for SmolTcpPacketProcesser {
     let total_packet_len = ip_pkt.total_len() + common::ETHER_HEADER_LEN as u16;    
 
     let tcp_pkt = TcpPacket::new_checked(ip_pkt.payload()).ok()?;
+    #[cfg(feature = "enable_csum_offload")]
     if !tcp_pkt.verify_checksum(&Ipv4Address(route_info.src_ipv4.0).into(), 
                         &Ipv4Address(route_info.dest_ipv4.0).into()) {
         return None;

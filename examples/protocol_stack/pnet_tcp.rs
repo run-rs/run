@@ -10,7 +10,7 @@ use common::{stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber}}, Prod
 use pnet::packet::{ipv4::*, MutablePacket, Packet};
 use pnet::packet::tcp::*;
 use pnet::packet::ethernet::*;
-use run_packet::{Buf, ether::ETHER_HEADER_LEN, tcp::TCP_HEADER_LEN, ipv4::IPV4_HEADER_LEN};
+use run_packet::{Buf, ether::ETHER_HEADER_LEN, tcp::{TCP_HEADER_LEN, self}, ipv4::IPV4_HEADER_LEN};
 
 #[derive(Parser)]
 struct Flags {
@@ -149,8 +149,15 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
 //    assert_eq!(ipv4_pkt.get_source().octets(),router_info.src_ipv4.0);
     ipv4_pkt.set_destination(router_info.dest_ipv4.0.into());
     ipv4_pkt.set_checksum(0);
-    let checksum = pnet::packet::ipv4::checksum(&ipv4_pkt.to_immutable());
-    ipv4_pkt.set_checksum(checksum);
+    #[cfg(not(feature = "enable_csum_offload"))]
+    {
+      let checksum = pnet::packet::ipv4::checksum(&ipv4_pkt.to_immutable());
+      ipv4_pkt.set_checksum(checksum);
+    }
+    #[cfg(feature = "enable_csum_offload")]
+    {
+      ipv4_pkt.set_checksum(0);
+    }
     
 //    println!("ipv4 packet payload length:{}",ipv4_pkt.payload().len());
 
@@ -201,11 +208,26 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
       }
     }
   
-    let checksum = ipv4_checksum(&tcp_pkt.to_immutable(), 
+    #[cfg(not(feature = "enable_csum_offload"))]
+    {
+      let checksum = ipv4_checksum(&tcp_pkt.to_immutable(), 
                                 &router_info.src_ipv4.0.into(),
                             &router_info.dest_ipv4.0.into());
     
-    tcp_pkt.set_checksum(checksum);
+      tcp_pkt.set_checksum(checksum);
+    }
+    #[cfg(feature = "enable_csum_offload")]
+    {
+      tcp_pkt.set_checksum(0);
+      
+      let mut of_flag = run_dpdk::offload::MbufTxOffload::ALL_DISABLED;
+      of_flag.enable_ip_cksum();
+      of_flag.enable_tcp_cksum();
+      of_flag.set_l2_len(ETHER_HEADER_LEN as u64);
+      of_flag.set_l3_len(IPV4_HEADER_LEN as u64);
+
+      mbuf.set_tx_offload(&of_flag);
+    }    
     /*println!("Send a packet: ");
     println!("  ack number:{}",tcp_pkt.get_acknowledgement());
     println!("  seq number:{}",tcp_pkt.get_sequence());
@@ -279,11 +301,13 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
     }
     route_info.dest_mac = common::MacAddr(eth_pkt.get_destination().octets());
     route_info.src_mac = common::MacAddr(eth_pkt.get_source().octets());
-
     let ip_pkt = Ipv4Packet::new(eth_pkt.payload())?;
-    let checksum = ip_pkt.get_checksum();
-    if pnet::packet::ipv4::checksum(&ip_pkt) != checksum {
-      return None;
+    #[cfg(not(feature = "enable_csum_offload"))]
+    {
+      let checksum = ip_pkt.get_checksum();
+      if pnet::packet::ipv4::checksum(&ip_pkt) != checksum {
+        return None;
+      }
     }
     route_info.dest_ipv4 = common::Ipv4Addr(ip_pkt.get_destination().octets());
     route_info.src_ipv4 = common::Ipv4Addr(ip_pkt.get_source().octets());
@@ -291,12 +315,15 @@ impl common::stack::tcp::PacketProcesser for PnetTcpPacketProcesser {
     let total_packet_len = ip_pkt.get_total_length() + common::ETHER_HEADER_LEN as u16;    
 
     let tcp_pkt = TcpPacket::new(ip_pkt.payload())?;
-    let checksum = tcp_pkt.get_checksum();
-    if pnet::packet::tcp
+    #[cfg(not(feature = "enable_csum_offload"))]
+    { 
+      let checksum = tcp_pkt.get_checksum();
+      if pnet::packet::tcp
         ::ipv4_checksum(&tcp_pkt, 
                         &route_info.src_ipv4.0.into(),
                    &route_info.dest_ipv4.0.into()) != checksum {
-      return None;
+        return None;
+     }
     }
 
     route_info.dest_port = tcp_pkt.get_destination();
@@ -570,6 +597,9 @@ const SERVER_REMOTE_MAC:common::MacAddr = common::MacAddr([0x08, 0x68, 0x8d, 0x6
 
 fn main() {
   env_logger::init();
+  #[cfg(feature = "enable_csum_offload")]
+  println!("enable csum offload");
+
   let args = Flags::parse();
   if !args.client {
     println!("start server");

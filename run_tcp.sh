@@ -104,15 +104,15 @@ echo "done"
 echo "running tso...."
 if $client ; then
   if $trace ; then
-    #sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/run_tso --client --period=40 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
+    sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/run_tso --client --period=40 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
   else
-    #sudo install/bin/run_tso --client --period=30 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
+    sudo install/bin/run_tso --client --period=30 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
   fi
 else
   if $trace ; then
-    #sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/run_tso --period=40 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
+    sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/run_tso --period=40 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
   else
-    #sudo install/bin/run_tso --period=60 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
+    sudo install/bin/run_tso --period=60 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
   fi
 fi
 echo "done"

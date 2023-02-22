@@ -169,9 +169,10 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
         TcpOption::EndOfList.build(options);
       }
     }
-
-    tcppkt.adjust_ipv4_checksum(router_info.src_ipv4, router_info.dest_ipv4);
-
+    #[cfg(not(feature = "enable_csum_offload"))]
+    {
+      tcppkt.adjust_ipv4_checksum(router_info.src_ipv4, router_info.dest_ipv4);
+    }
    /*  println!("send a tcp packet:");
     println!("  ack: {}",if tcppkt.ack() {
       tcppkt.ack_number().to_string()
@@ -192,14 +193,27 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     ippkt.set_dest_ip(router_info.dest_ipv4);
     ippkt.set_source_ip(router_info.src_ipv4);
     ippkt.set_ident(0x5c65);
-    ippkt.adjust_checksum();
-
+    #[cfg(not(feature = "enable_csum_offload"))]
+    {
+      ippkt.adjust_checksum();
+    }
     // build ethernet packet
     let mut ethpkt = EtherPacket::prepend_header(ippkt.release(), &ETHER_HEADER_TEMPLATE);
     ethpkt.set_dest_mac(router_info.dest_mac);
     ethpkt.set_source_mac(router_info.src_mac);
     ethpkt.set_ethertype(EtherType::IPV4);
 
+    #[cfg(feature = "enable_csum_offload")]
+    {
+      
+      let mut of_flag = run_dpdk::offload::MbufTxOffload::ALL_DISABLED;
+      of_flag.enable_ip_cksum();
+      of_flag.enable_tcp_cksum();
+      of_flag.set_l2_len(ETHER_HEADER_LEN as u64);
+      of_flag.set_l3_len(IPV4_HEADER_LEN as u64);
+
+      mbuf.set_tx_offload(&of_flag);
+    } 
     //println!()
   }
 
@@ -218,9 +232,11 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     route_info.dest_mac = ethpkt.dest_mac();
     route_info.src_mac = ethpkt.source_mac();
     let ippkt = Ipv4Packet::parse(ethpkt.payload()).ok()?;
+    #[cfg(not(feature = "enable_csum_offload"))]
     if !ippkt.verify_checksum() {
       return None;
     }
+
     if ippkt.protocol() != IpProtocol::TCP {
       log::log!(log::Level::Trace,"non-tcp packet. drop it");
       return None;
@@ -230,6 +246,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     route_info.dest_ipv4 = ippkt.dest_ip();
     
     let mut tcppkt = TcpPacket::parse(ippkt.payload()).ok()?;
+    #[cfg(not(feature = "enable_csum_offload"))]
     if !tcppkt.verify_ipv4_checksum(route_info.src_ipv4, route_info.dest_ipv4) {
       return None;
     }
@@ -481,6 +498,8 @@ const SERVER_REMOTE_MAC:MacAddr = MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]);
 
 fn main() {
   env_logger::init();
+  #[cfg(feature = "enable_csum_offload")]
+  println!("enable csum offload");
   let args = Flags::parse();
   if !args.client {
     println!("start server");
