@@ -314,7 +314,17 @@ where
     } else {
       0
     };
-
+   // static mut last:TcpSeqNumber = TcpSeqNumber(0);
+    //if unsafe {last} != self.remote_last_seq {
+      //unsafe {last = self.remote_last_seq;}  
+     // log::log!(log::Level::Trace,
+     //  "remote_win_len {}, tx_buffer_len {},max_send_seq : {}, remote_last_seq:{}",
+     //  self.remote_win_len,
+     //  self.tx_buffer.len(),
+     //  max_send_seq,
+     //  self.remote_last_seq);
+    //}
+   
     let mut can_send = max_send != 0;
     let can_send_full = max_send >= effective_mss;
 
@@ -552,13 +562,19 @@ where
       batch.push(mbuf);
     }
 
-    let segment_len = batch[0].len() + repr.ctrl.len();
+    
+    let payload_len =  if is_keep_alive {
+      0
+    } else {
+      batch[0].len()
+    };
+    let segment_len = payload_len + repr.ctrl.len();
 
     self.packet_processer.build(&mut batch[0],&repr,&router_info);
 
-    while !batch.is_empty() {
-      txq.tx(&mut batch);
-    }
+    txq.tx(&mut batch);
+    assert!(batch.is_empty());
+    //self.tx_buffer.dequeue_allocated(payload_len);
 
     self.timer.rewind_keep_alive(ts,self.keep_alive);
 
@@ -1473,7 +1489,9 @@ where
 
   fn do_send(&mut self,mp:&mut Mempool,ts:smoltcp::time::Instant,txq:&mut TxQueue)  {
     self.pull_data_from_producer();
-    self.build(mp,ts,txq);
+    if self.has_data(ts) {
+      self.build(mp, ts, txq)
+    }//self.build(mp,ts,txq);
   }
   
   fn has_data(&mut self,ts:smoltcp::time::Instant) -> bool {

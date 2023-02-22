@@ -190,12 +190,11 @@ pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S,offload:OFFL
       }
     }
     while !rbatch.is_empty() {
-      txq.tx(&mut rbatch);
+      let sent = txq.tx(&mut rbatch);
+      log::log!(log::Level::Trace,"sent response {}",sent);
     }
 
-    if stack.has_data(ts) {
-      stack.do_send(&mut mp, ts, &mut txq);
-    }
+    stack.do_send(&mut mp, ts, &mut txq);
   }
 }
 

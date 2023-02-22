@@ -170,7 +170,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     tcppkt.set_checksum(0);
     //tcppkt.adjust_ipv4_checksum(router_info.src_ipv4, router_info.dest_ipv4);
 
-    println!("send a tcp packet:");
+    /* println!("send a tcp packet:");
     println!("  ack: {}",if tcppkt.ack() {
       tcppkt.ack_number().to_string()
     } else {
@@ -178,8 +178,8 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     });
     println!("  window size: {}",tcppkt.window_size());
     println!("  seq number: {}",tcppkt.seq_number());
-    println!("  header len: {}",tcppkt.header_len());
-    println!("  payload len: {}",payload_len);
+    println!("  header len: {}",tcppkt.header_len()); */
+    
 
     // build ip packet
     let mut ippkt = Ipv4Packet::prepend_header(tcppkt.release(), &IPV4_HEADER_TEMPLATE);
@@ -203,7 +203,9 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     of_flag.set_l2_len(ETHER_HEADER_LEN as u64);
     of_flag.set_l3_len(IPV4_HEADER_LEN as u64);
     of_flag.set_l4_len(header_len as u64);
-    of_flag.enable_tcp_tso(unsafe {MSS});
+    if mbuf.len() > unsafe {MSS as usize} {
+      of_flag.enable_tcp_tso(unsafe {MSS});
+    }
 
     mbuf.set_tx_offload(&of_flag);
   }
@@ -289,7 +291,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       }
       options = next_options;
     }
-    println!("received a tcp packet:");
+    /* println!("received a tcp packet:");
     println!("  ack: {}",match tcprepr.ack_number {
       Some(v) => v.0.to_string(),
       _ => String::from_str("None").unwrap(),
@@ -298,7 +300,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     println!("  window size: {}",tcprepr.window_len);
     println!("  header len: {}",tcppkt.header_len());
     println!("  payload len: {}",tcppkt.payload().chunk().len());
-    println!("  dest mac: {}",route_info.dest_ipv4);
+    println!("  dest mac: {}",route_info.dest_ipv4); */
     mbuf.truncate(total_packet_len as usize);
     Some((tcprepr,route_info,payload_offset))
   }
