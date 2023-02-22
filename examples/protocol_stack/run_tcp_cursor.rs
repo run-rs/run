@@ -124,28 +124,27 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     unsafe { mbuf.extend_front(total_header_overhead) };
     let mut pbuf = run_packet::CursorMut::new(mbuf.data_mut());
     pbuf.advance(total_header_overhead);
-
-    //println!("pbuf chunk headroom {}",pbuf.chunk_headroom());
-    //println!("pbuf data room {}",pbuf.remaining());
-
     tcpheader.set_header_len(header_len as u8);
-    let mut tcppkt = TcpPacket::prepend_header(pbuf, &tcpheader);
-    tcppkt.set_src_port(router_info.src_port);
-    tcppkt.set_dst_port(router_info.dest_port);
-    tcppkt.set_seq_number(repr.seq_number.0 as u32);
+    tcpheader.set_src_port(router_info.src_port);
+    tcpheader.set_dst_port(router_info.dest_port);
+    tcpheader.set_seq_number(repr.seq_number.0 as u32);
     let ack = repr.ack_number.unwrap_or_default().0 as u32;
     //println!("send a ack number {}",ack);
-    tcppkt.set_ack_number(ack);
+    tcpheader.set_ack_number(ack);
     //println!("set window length: {}",repr.window_len);
-    tcppkt.set_window_size(repr.window_len);
+    tcpheader.set_window_size(repr.window_len);
     match repr.ctrl {
       common::stack::tcp::TcpControl::None => (),
-      common::stack::tcp::TcpControl::Psh => tcppkt.set_psh(true),
-      common::stack::tcp::TcpControl::Syn => tcppkt.set_syn(true),
-      common::stack::tcp::TcpControl::Fin => tcppkt.set_fin(true),
-      common::stack::tcp::TcpControl::Rst => tcppkt.set_rst(true),
+      common::stack::tcp::TcpControl::Psh => tcpheader.set_psh(true),
+      common::stack::tcp::TcpControl::Syn => tcpheader.set_syn(true),
+      common::stack::tcp::TcpControl::Fin => tcpheader.set_fin(true),
+      common::stack::tcp::TcpControl::Rst => tcpheader.set_rst(true),
     }
-    tcppkt.set_ack(repr.ack_number.is_some());
+    
+    tcpheader.set_ack(repr.ack_number.is_some());
+
+    let mut tcppkt = TcpPacket::prepend_header(pbuf, &tcpheader);
+    
     {
       let mut options = tcppkt.option_bytes_mut();
       if let Some(value) = repr.max_seg_size {

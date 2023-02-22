@@ -81,10 +81,10 @@ def main():
             "1518":[0,0]
         }
         for row in reader:
-            if row["framework"] == "RUN":
+            if row["framework"] == "Pbuf":
                 pbuf[row["mtu"]][0] += float(row["throughput"])
                 pbuf[row["mtu"]][1] += 1
-            if row["framework"] == "RUN_CURSOR":
+            if row["framework"] == "Cursor":
                 cursor[row["mtu"]][0] += float(row["throughput"])
                 cursor[row["mtu"]][1] += 1
             if row["framework"] == "SmolTcp":
@@ -167,7 +167,7 @@ def main():
     
 
     ax.set_ylabel('ThroughPut (Gbps)')
-    ax.set_xlabel("Packet Bytes")
+    ax.set_xlabel("MTU")
     ax.set_ylim(0)
     
 
@@ -178,7 +178,7 @@ def main():
                     'verticalalignment': 'baseline',
                     'horizontalalignment': "center"
                 }
-    ax.set_title('Tcp Protocol Stack Performance',pad = 10, **titlefont)
+    ax.set_title('Tcp Protocol Stack Performance without checksum offload',pad = 10, **titlefont)
 
     # hide the top spines
     ax.spines[['right', 'top']].set_visible(False)

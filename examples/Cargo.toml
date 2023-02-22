@@ -21,7 +21,7 @@ pnet = "0.31.0"
 
 [features]
 enable_csum_offload = []
-default = ["enable_csum_offload"]
+#default = ["enable_csum_offload"]
 
 [[example]]
 name = "port_test"
