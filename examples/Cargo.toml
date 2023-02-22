@@ -19,10 +19,6 @@ mockalloc = "0.1.2"
 env_logger = "0.9"
 pnet = "0.31.0"
 
-[features]
-enable_csum_offload = []
-#default = ["enable_csum_offload"]
-
 [[example]]
 name = "port_test"
 path = "dpdk/port_test.rs"
@@ -73,21 +69,37 @@ path = "dpdk/smol_traffic_fwd.rs"
 
 
 [[example]]
-name = "run_tcp"
-path = "protocol_stack/run_tcp.rs"
+name = "pbuf"
+path = "protocol_stack/pbuf.rs"
 
 [[example]]
-name = "pnet_tcp"
-path = "protocol_stack/pnet_tcp.rs"
+name = "pnet"
+path = "protocol_stack/pnet.rs"
 
 [[example]]
-name = "smol_tcp"
-path = "protocol_stack/smol_tcp.rs"
+name = "smol"
+path = "protocol_stack/smol.rs"
 
 [[example]]
-name = "run_tcp_cursor"
-path = "protocol_stack/run_tcp_cursor.rs"
+name = "cursor"
+path = "protocol_stack/cursor.rs"
 
 [[example]]
 name = "run_tso"
 path = "protocol_stack/run_tso.rs"
+
+[[example]]
+name = "pnet_csum_offload"
+path = "protocol_stack/pnet_csum_offload.rs"
+
+[[example]]
+name = "smol_csum_offload"
+path = "protocol_stack/smol_csum_offload.rs"
+
+[[example]]
+name = "cursor_csum_offload"
+path = "protocol_stack/cursor_csum_offload.rs"
+
+[[example]]
+name = "pbuf_csum_offload"
+path = "protocol_stack/pbuf_csum_offload.rs"

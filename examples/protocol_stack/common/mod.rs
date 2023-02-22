@@ -94,10 +94,13 @@ fn init_port(port_id: u16,
   let lro = offload == OFFLOAD::LRO;
   let ipv4_csum = offload == OFFLOAD::TSO || 
                         offload == OFFLOAD::IPV4_CSUM || 
-                        offload == OFFLOAD::IPV4_TCP_CSUM;
+                        offload == OFFLOAD::IPV4_TCP_CSUM ||
+                        offload == OFFLOAD::LRO;
   let tcp_csum = offload == OFFLOAD::TSO ||
+                       offload == OFFLOAD::LRO ||
                        offload == OFFLOAD::IPV4_TCP_CSUM ||
                        offload == OFFLOAD::TCP_CSUM;
+
   
   mpconf.socket_id = socket_id;
   match run_dpdk::service().mempool_create(mp_name, mpconf) {
