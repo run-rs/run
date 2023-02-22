@@ -74,22 +74,29 @@ fn main() {
         &mut txq_conf,
     );
 
-    let mut rxq = service().rx_queue(port_id, 0).unwrap();
-    let mut batch:ArrayVec<Mbuf, 32> = ArrayVec::new();
-    rxq.rx(&mut batch);
-    for mbuf in batch.iter_mut() {
-        println!("packet len: {}",mbuf.len());
-        let pbuf = Pbuf::new(mbuf);
-        let ether = EtherPacket::parse(pbuf).unwrap();
-        let ipv4 = Ipv4Packet::parse(ether.payload()).unwrap();
-        println!("ipv4 dst {}",ipv4.dest_ip());
-        println!("ipv4 src {}",ipv4.source_ip());
-        if ipv4.protocol() != IpProtocol::TCP {
-            continue;
+    let mut run:Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+    let mut run_clone = run.clone();
+    ctrlc::set_handler(move || {
+        run_clone.store(false, Ordering::Relaxed);
+    })
+    while run.load(Ordering::Relaxed) {
+        let mut rxq = service().rx_queue(port_id, 0).unwrap();
+        let mut batch:ArrayVec<Mbuf, 32> = ArrayVec::new();
+        rxq.rx(&mut batch);
+        for mbuf in batch.iter_mut() {
+            println!("packet len: {}",mbuf.len());
+            let pbuf = Pbuf::new(mbuf);
+            let ether = EtherPacket::parse(pbuf).unwrap();
+            let ipv4 = Ipv4Packet::parse(ether.payload()).unwrap();
+            println!("ipv4 dst {}",ipv4.dest_ip());
+            println!("ipv4 src {}",ipv4.source_ip());
+            if ipv4.protocol() != IpProtocol::TCP {
+                continue;
+            }
+            let tcp = TcpPacket::parse(ipv4.payload()).unwrap();
+            println!("tcp ack {}",tcp.ack_number());
+            println!("tcp seq {}",tcp.seq_number());
         }
-        let tcp = TcpPacket::parse(ipv4.payload()).unwrap();
-        println!("tcp ack {}",tcp.ack_number());
-        println!("tcp seq {}",tcp.seq_number());
     }
 
     service().port_close(port_id).unwrap();
