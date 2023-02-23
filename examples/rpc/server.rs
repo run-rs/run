@@ -79,6 +79,7 @@ fn init_port(port_id: u16,
     pconf.rx_offloads.enable_ipv4_cksum();
     pconf.tx_offloads.enable_multi_segs();
     pconf.tx_offloads.enable_ipv4_cksum();
+    pconf.rx_offloads.enable_scatter();
     pconf.mtu = MTU as u32;
 
   
@@ -113,6 +114,8 @@ fn main(){
 
   init_eal(DPDK_PORT_ID);
 
+  nexus.register_req_func(2, ReqFunc{req_func:req_func}).unwrap();
+
   let mut rpc=nexus.create_rpc(
       true,
       0,
@@ -130,25 +133,25 @@ fn main(){
   rpc.create_session(true,0);
 
   let run = Arc::new(AtomicBool::new(true));
-
-  let ctrlc_run = run.clone();
-
-  ctrlc::set_handler( move || {
-      ctrlc_run.store(false,Ordering::Relaxed);
-  }).unwrap();
-
-  nexus.register_req_func(2, ReqFunc{req_func:req_func}).unwrap();
-
-  let run = Arc::new(AtomicBool::new(true));
   let run_ctrlc = run.clone();
 
-  ctrlc::set_handler(move|| {
-    run_ctrlc.store(false, Ordering::Relaxed);
+  ctrlc::set_handler( move || {
+    run_ctrlc.store(false,Ordering::Relaxed);
   }).unwrap();
+
 
   while run.load(Ordering::Relaxed) {
     rpc.run_event_loop_once();
   }
+
+  service().port_close(DPDK_PORT_ID).unwrap();
+  println!("port closed");
+
+  service().mempool_free("mp").unwrap();
+  println!("mempool freed");
+
+  service().service_close().unwrap();
+  println!("dpdk service shutdown gracefully");
 }
 
 fn req_func(req_handle:ReqHandle,_ctx:RpcContext){
