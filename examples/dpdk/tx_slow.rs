@@ -218,8 +218,8 @@ fn init_port(
     mpconf.socket_id = socket_id;
     service().mempool_create(mp_name, mpconf).unwrap();
 
-    let pconf = PortConf::from_port_info(port_info).unwrap();
-    // pconf.mtu = 9000;
+    let mut pconf = PortConf::from_port_info(port_info).unwrap();
+    pconf.mtu = 9000;
 
     rxq_conf.mp_name = mp_name.to_string();
     rxq_conf.socket_id = socket_id;

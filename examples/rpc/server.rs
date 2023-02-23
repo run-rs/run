@@ -117,7 +117,7 @@ fn main(){
   nexus.register_req_func(2, ReqFunc{req_func:req_func}).unwrap();
 
   let mut rpc=nexus.create_rpc(
-      true,
+      false,
       0,
       service().tx_queue(DPDK_PORT_ID, 0).unwrap(),
       service().rx_queue(DPDK_PORT_ID, 0).unwrap(),

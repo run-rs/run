@@ -81,6 +81,9 @@ path = "dpdk/tx_tcp.rs"
 name = "lro_test"
 path = "dpdk/lro_test.rs"
 
+[[example]]
+name = "jumbo_test"
+path = "dpdk/jumbo_test.rs"
 
 [[example]]
 name = "pbuf"

@@ -265,7 +265,7 @@ fn init_port(
 fn main() {
     DpdkOption::new().init().unwrap();
 
-    let port_id = 0;
+    let port_id = 3;
     let nb_qs = 1;
     let mp_name = "mp";
     let mut mpconf = MempoolConf::default();
@@ -316,7 +316,7 @@ fn main() {
             while run.load(Ordering::Acquire) {
                 std::thread::sleep(std::time::Duration::from_secs(1));
 
-                let mbuf = build_tcp_offload(payload_len, &mp);
+                let mbuf = build_udp_manual(payload_len, &mp);
 
                 batch.push(mbuf);
                 while batch.len() > 0 {
