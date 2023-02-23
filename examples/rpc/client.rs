@@ -19,7 +19,7 @@ const SERVER_IPV4:Ipv4Addr = Ipv4Addr([192,168,23,2]);
 const CLIENT_MAC:MacAddr = MacAddr([0x10, 0x70, 0xfd, 0x15, 0x77, 0xbf]);
 const SERVER_MAC:MacAddr = MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]);
 const SERVER_PORT:u16 = 9000;
-const DPDK_PORT_ID:u16 = 0;
+const DPDK_PORT_ID:u16 = 3;
 
 const RESP_SIZE:usize = 8000;
 
@@ -77,6 +77,7 @@ fn init_port(port_id: u16,
     pconf.rx_offloads.enable_ipv4_cksum();
     pconf.tx_offloads.enable_multi_segs();
     pconf.tx_offloads.enable_ipv4_cksum();
+    pconf.rx_offloads.enable_scatter();
     pconf.mtu = MTU as u32;
 
   

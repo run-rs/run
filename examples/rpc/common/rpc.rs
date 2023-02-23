@@ -4,7 +4,7 @@ use arrayvec::ArrayVec;
 use bytes::Buf;
 use log::trace;
 use run_dpdk::{Mbuf, Pbuf, TxQueue, RxQueue, Mempool};
-use run_packet::{ether::{self, MacAddr, EtherType, EtherPacket, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, ipv4::{Ipv4Addr, self, IpProtocol, Ipv4Packet, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN}, udp::{self, UDP_HEADER_TEMPLATE, UdpPacket}};
+use run_packet::{ether::{self, MacAddr, EtherType, EtherPacket, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, ipv4::{Ipv4Addr, self, IpProtocol, Ipv4Packet, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN}, udp::{self, UDP_HEADER_TEMPLATE, UdpPacket, UDP_HEADER_LEN}};
 
 use crate::common::{constant::{SESSION_CREDITS, MAX_MSG_SIZE, TTR_MAX_DATA_PER_PKT, INVALID_REQ_TYPE}, msgbuffer::{RPC_HEADER_LEN}, sslot::{ClientInfo, Info}};
 
@@ -820,6 +820,8 @@ impl Rpc {
             let msg_buffer=&item.msg_buffer;
             let mut buf=msg_buffer.get_buf_n(item.pkt_idx);
             buf.advance(42);
+            let payload_len = buf.remaining();
+
             let mut udp_pkt=UdpPacket::prepend_header(buf, &UDP_HEADER_TEMPLATE);
             udp_pkt.set_dest_port(self.remote_port);
             udp_pkt.set_source_port(self.local_port);
@@ -829,6 +831,7 @@ impl Rpc {
             ippkt.set_dest_ip(self.remote_ipv4);
             ippkt.set_source_ip(self.local_ipv4);
             ippkt.set_time_to_live(64);
+            ippkt.set_packet_len_unchecked((payload_len + UDP_HEADER_LEN + IPV4_HEADER_LEN) as u16);
 
             let mut ethpkt = EtherPacket::prepend_header(ippkt.release(), &ETHER_HEADER_TEMPLATE);
             ethpkt.set_dest_mac(self.remote_mac);
