@@ -130,7 +130,7 @@ fn main(){
       CLIENT_MAC
   );
 
-  rpc.create_session(true,0);
+  rpc.create_session(false,RESP_SIZE);
 
   let run = Arc::new(AtomicBool::new(true));
   let run_ctrlc = run.clone();

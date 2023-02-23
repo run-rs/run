@@ -322,7 +322,7 @@ impl Rpc {
             pbuf.move_back(42);
             let pkt_hdr=RpcHeader::from_slice(pbuf.chunk());
 
-            pbuf.advance(RPC_HEADER_LEN);
+            pbuf.advance(HEADER_LEN);
 
             idx+=1;
             if idx == self.rx_ring.len() {
@@ -653,7 +653,9 @@ impl Rpc {
         sslot.borrow_mut().tx_msgbuf=Some(req_msgbuf.clone());
 
         // Move to next request
-        sslot.borrow_mut().cur_req_num+=SESSION_REQ_WINDOW;
+        sslot.borrow_mut().cur_req_num += SESSION_REQ_WINDOW;
+
+        //println!("{}",sslot.borrow_mut().cur_req_num);        
 
         let mut ci= ClientInfo::default();
         ci.resp_msgbuf=Some(resp_msgbuf.clone());

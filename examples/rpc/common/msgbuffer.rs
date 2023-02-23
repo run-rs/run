@@ -109,7 +109,7 @@ impl MsgBuffer {
             (max_data_size+TTR_MAX_DATA_PER_PKT-1)/TTR_MAX_DATA_PER_PKT
         }
     }
-    
+
     #[allow(non_snake_case)]
     pub fn ALLOCA_MSG(max_data_size:usize)->Self{
         assert!(max_data_size>0);
@@ -138,7 +138,8 @@ impl MsgBuffer {
     }
 
     pub fn copy_data_from_buf<T:PktBuf>(&mut self,buf:&mut T,pkt_idx:usize){
-        assert!(buf.remaining()<=TTR_MAX_DATA_PER_PKT);
+        //println!("buf remaining {}",buf.remaining());
+        assert!(buf.remaining() <= TTR_MAX_DATA_PER_PKT);
         let offset=pkt_idx*TTR_MAX_DATA_PER_PKT;
         let ptr=unsafe{
             self.0.borrow_mut().buf.as_mut().unwrap().as_ptr().add(offset)
