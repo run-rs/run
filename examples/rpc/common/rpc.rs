@@ -319,6 +319,7 @@ impl Rpc {
                 continue;
             }
             pbuf = udppkt.payload();
+            pbuf.move_back(42);
             let pkt_hdr=RpcHeader::from_slice(pbuf.chunk());
 
             pbuf.advance(RPC_HEADER_LEN);
