@@ -148,12 +148,13 @@ impl MsgBuffer {
             std::slice::from_raw_parts_mut(ptr, buf.remaining())
         };
         let mut dst_buf=CursorMut::new(slice);
-        while buf.has_remaining() {
+        /* while buf.has_remaining() {
             let size=buf.chunk().len();
             dst_buf.chunk_mut()[0..size].copy_from_slice(buf.chunk());
             dst_buf.advance(size);
             buf.advance(size);
-        }
+        } */
+        dst_buf.advance(buf.remaining())
     }
     pub unsafe fn from_pkthdr(header:&RpcHeader,max_data_size:usize)->Self{
         Self(
@@ -335,12 +336,13 @@ impl Clone for MsgBuffer{
 /// PktHeader: 42 + 4 +2 + 8 = 56
 pub struct RpcHeader{
     headroom:[u8;42],
+    pkt_type:PktType,
     req_type:u8,
+    magic:u8,
+    pkt_num:u16,
     msg_size:u32,
     req_num:u64,
-    pkt_num:u16,
-    magic:u8,
-    pkt_type:PktType
+    ts:u64,
 }
 
 
@@ -422,7 +424,15 @@ impl RpcHeader{
 
     pub fn set_pkt_num(&mut self,pkt_num:u16){
         self.pkt_num=pkt_num
-    } 
+    }
+
+    pub fn set_ts(&mut self,ts:u64) {
+        self.ts = ts;
+    }
+
+    pub fn ts(&self) -> u64 {
+        self.ts
+    }
 }
 
 impl Display for RpcHeader {

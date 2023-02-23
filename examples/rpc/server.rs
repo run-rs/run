@@ -42,6 +42,7 @@ fn init_eal(port_id:u16) -> bool {
     mconf.nb_mbufs = 8192 * 4;
     mconf.per_core_caches = 256;
     mconf.socket_id = 0;
+    mconf.dataroom = 8196;
   
     let mut rxq_conf = run_dpdk::RxQueueConf::default();
     rxq_conf.mp_name = "mp".to_string();
@@ -159,8 +160,8 @@ fn req_func(req_handle:ReqHandle,_ctx:RpcContext){
     }
 
 
-    let end = run_time::Instant::now() - run_time::Instant::now();
-    println!("{}",end.as_nanos());
+    /* let end = run_time::Instant::now() - run_time::Instant::now(); */
+    /* println!("{}",end.as_nanos()); */
     //println!("ending processing");
 }
 

@@ -144,11 +144,10 @@ impl Nexus {
             ctrl_msgbufs:ctrl_msgbufs,
             ctrl_msg_head:0,
             retrasmit_count:0,
-            max_event_loop_tsc:0,
-            avg_event_loop_tsc:0,
-            avg_rx_tsc:0,
-            avg_tx_tsc:0,
-            avg_pkt_loss:0,
+            out_of_order:0,
+            avg_tx:0,
+            avg_deal:0,
+            avg_trans:0,
         };
         let head=rpc.active_rpcs_head_sentinel.clone();
         let tail=rpc.active_rpcs_tail_sentinel.clone();

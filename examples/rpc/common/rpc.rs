@@ -112,21 +112,19 @@ pub struct Rpc {
     pub(crate) ctrl_msg_head:usize,
 
     pub(crate) retrasmit_count:u64,
-    pub(crate) max_event_loop_tsc:u64,
-    pub(crate) avg_event_loop_tsc:u64,
-    pub(crate) avg_rx_tsc:u64,
-    pub(crate) avg_tx_tsc:u64,
-    pub(crate) avg_pkt_loss:u64,
+    pub(crate) out_of_order:u64,
+    pub(crate) avg_tx:u64,
+    pub(crate) avg_deal:u64,
+    pub(crate) avg_trans:u64,
 }
 
 impl Drop for Rpc {
     fn drop(&mut self) {
         println!("RPC Retrasmit count: {}",self.retrasmit_count);
-        println!("RCP Max Event Loop Time: {}us",to_usec(self.max_event_loop_tsc,self.freq_ghz));
-        println!("RCP Avg Event Loop Time: {}us",to_usec(self.avg_event_loop_tsc,self.freq_ghz));
-        println!("RCP Avg RX Time: {}us",to_usec(self.avg_rx_tsc,self.freq_ghz));
-        println!("RCP Avg TX Time: {}us",to_usec(self.avg_tx_tsc,self.freq_ghz));
-        println!("RCP Avg PKT LOSS Time: {}us",to_usec(self.avg_pkt_loss,self.freq_ghz));
+        println!("Out of order: {}",self.out_of_order);
+        println!("RCP TX: {}us",to_usec(self.avg_tx,self.freq_ghz));
+        println!("RCP Deal: {}us",to_usec(self.avg_deal,self.freq_ghz));
+        println!("RCP Trans: {}us",to_usec(self.avg_trans,self.freq_ghz));
     }
 }
 
@@ -140,13 +138,6 @@ impl Rpc {
         // packet Rx code use ev_loop_tsc as the Rx timestamp
         // So it must be next to ev_loop_tsc
         self.process_comps_st(); // Rx code
-        let t1 = rdtsc();
-        if self.avg_rx_tsc == 0 {
-            self.avg_rx_tsc = t1 - self.ev_loop_tsc;
-        } else {
-            self.avg_rx_tsc = ((self.avg_rx_tsc) + t1 - self.ev_loop_tsc) / 2;
-        }
-
         self.process_credit_stall_queue_st(); // Tx Code
 
         if !self.tx_burst_batch.is_empty() {
@@ -154,31 +145,9 @@ impl Rpc {
             self.do_tx_burst_st();
         }
 
-        let t2 = rdtsc();
-        if self.avg_tx_tsc == 0 {
-            self.avg_tx_tsc = t2 - t1;
-        } else {
-            self.avg_tx_tsc = (self.avg_tx_tsc + t2 - t1) / 2;
-        }
-
         if self.ev_loop_tsc - self.pkt_loss_scan_tsc > self.rpc_pkt_loss_scan_cycles {
             self.pkt_loss_scan_tsc = self.ev_loop_tsc;
             self.pkt_loss_scan_st();
-        }
-
-        let t3 = rdtsc();
-        if self.avg_pkt_loss == 0 {
-            self.avg_pkt_loss = t3 - t2;
-        } else {
-            self.avg_pkt_loss = (self.avg_pkt_loss + t3 - t2) / 2;
-        }
-
-        let diff = t3 - self.ev_loop_tsc;
-        self.max_event_loop_tsc = std::cmp::max(self.max_event_loop_tsc,diff);
-        if self.avg_event_loop_tsc == 0 {
-            self.avg_event_loop_tsc = diff;
-        } else {
-            self.avg_event_loop_tsc = ((self.avg_event_loop_tsc) + diff) / 2;
         }
     }
 
@@ -310,6 +279,7 @@ impl Rpc {
         rfr_pkthdr.set_pkt_num(sslot.borrow().client_info().unwrap().num_tx as u16);
         rfr_pkthdr.set_req_num(pkt_hdr.req_num());
         rfr_pkthdr.set_magic(11);
+        rfr_pkthdr.set_ts(Instant::now().total_micros() as u64);
 
         self.enqueue_hdr_tx_burst_st(sslot, ctrl_msgbuf.unwrap());
     }
@@ -341,7 +311,6 @@ impl Rpc {
         let mut rx_ring=self.rx_ring.take();
         
         for mut mbuf in rx_ring.drain(..) {
-            
             let mut pbuf = Pbuf::new(&mut mbuf);
             let epkt = ether::EtherPacket::parse(pbuf).unwrap();
             if epkt.dest_mac() != self.local_mac {
@@ -369,7 +338,7 @@ impl Rpc {
             }
             pbuf = udppkt.payload();
             pbuf.move_back(42);
-            let pkt_hdr=RpcHeader::from_slice(pbuf.chunk());
+            let mut pkt_hdr=RpcHeader::from_slice(pbuf.chunk());
 
             pbuf.advance(HEADER_LEN);
 
@@ -384,6 +353,14 @@ impl Rpc {
                 );
                 continue;
             }
+
+            { 
+                let before = pkt_hdr.ts();
+                let now = Instant::now().total_micros() as u64;
+                self.avg_trans = (now - before + 4 + self.avg_trans * 3) / 4;
+                pkt_hdr.set_ts(now);
+            }
+
             // msg size can be zero
             assert!(pkt_hdr.msg_size() as usize <= MAX_MSG_SIZE);
 
@@ -392,19 +369,14 @@ impl Rpc {
 
             match pkt_hdr.pkt_type() {
                 PktType::Req => {
-                    if pkt_hdr.msg_size() as usize <= TTR_MAX_DATA_PER_PKT {
-                        self.process_small_req_st(sslot,&pkt_hdr);
-                    }
-                    else{
-                        self.process_large_req_one_st(sslot,&pkt_hdr);
-                    }
+                    self.process_req_st(sslot,&pkt_hdr);
                 },
                 PktType::RFR => {
-                    self.process_rfr_st(sslot,&pkt_hdr);
+                    unimplemented!();
                 },
 
                 PktType::ExplCR =>{
-                    self.process_expl_cr_st(sslot,&pkt_hdr,batch_rx_tsc);
+                    unimplemented!();
                 },
                 PktType::Resp =>{
                     self.process_resp_one_st(sslot,&pkt_hdr,pbuf,batch_rx_tsc)
@@ -414,7 +386,7 @@ impl Rpc {
 
     }
 
-    fn process_small_req_st(&mut self,sslot:Rc<RefCell<SSlot>>,pkt_hdr:&RpcHeader){
+    fn process_req_st(&mut self,sslot:Rc<RefCell<SSlot>>,pkt_hdr:&RpcHeader){
         trace!(
             "Received a request, Req num:{} (pkt), {} (sslot).Action",
             pkt_hdr.req_num(),
@@ -498,67 +470,12 @@ impl Rpc {
         //self.transport.tx_flush()
     }
     
-    fn process_large_req_one_st(&mut self,_sslot:Rc<RefCell<SSlot>>,_pkt_hdr:&RpcHeader){
-        /* /*  Handle reordering   */
-        //Is this the next packet in this request?
-        let is_next_pkt_same_req = 
-            (pkt_hdr.req_num() as usize == sslot.borrow().cur_req_num) &&
-            (pkt_hdr.pkt_num() as usize == sslot.borrow().server_info().unwrap().num_rx);
-        // Is this the first packet in the next request?
-        let is_first_pkt_next_req =  */
-        unimplemented!()
-    }
-    fn process_rfr_st(&mut self,sslot:Rc<RefCell<SSlot>>,pkt_hdr:&RpcHeader){
-        assert!(!sslot.borrow().is_client());
-
-        assert!(pkt_hdr.req_num() as usize<= sslot.borrow().cur_req_num);
-
-        let in_order=(pkt_hdr.req_num() as usize == sslot.borrow().cur_req_num) &&
-                            (pkt_hdr.pkt_num() as usize == sslot.borrow().server_info().unwrap().num_rx);
-        
-        if !in_order {
-            trace!(
-                "Received out-of-order RFR."
-            );
-
-            if (pkt_hdr.req_num() as usize) < sslot.borrow().cur_req_num ||
-                pkt_hdr.pkt_num() as usize > sslot.borrow().server_info().unwrap().num_rx
-            {
-                    trace!("Dropping {}, num_rx:{}",pkt_hdr,sslot.borrow().server_info().unwrap().num_rx);
-                    return;
-            }
-
-            trace!(
-                "Re-sending response, {}, num_rx: {}",
-                pkt_hdr,
-                sslot.borrow().server_info().unwrap().num_rx
-            );
-
-            //assert!(false);
-            let pkt_idx=pkt_hdr.pkt_num() as usize - sslot.borrow().server_info().unwrap().sav_num_req_pkts +1;
-            self.enqueue_pkt_tx_burst_st(sslot, pkt_idx);
-            self.drain_tx_batch_and_dma_queue();
-            return;
-        }
-        sslot.borrow_mut().server_info_mut().unwrap().num_rx+=1;
-        
-        let pkt_idx=pkt_hdr.pkt_num() as usize - sslot.borrow().server_info().unwrap().sav_num_req_pkts +1;
-        trace!(
-            "Sending {}th response, {}, num_rx: {}",
-            pkt_idx,
-            pkt_hdr,
-            sslot.borrow().server_info().unwrap().num_rx
-        );
-        self.enqueue_pkt_tx_burst_st(sslot, pkt_idx)
-    }
-    fn process_expl_cr_st(&mut self,_sslot:Rc<RefCell<SSlot>>,_pkt_hdr:&RpcHeader,_rx_tsc:u64){
-        unimplemented!()
-    }
     fn process_resp_one_st(&mut self,sslot:Rc<RefCell<SSlot>>,pkt_hdr:&RpcHeader,mut payload:Pbuf,_rx_tsc:u64){
         assert!(pkt_hdr.req_num() <= sslot.borrow().cur_req_num as u64);
 
         //handle reordering
         if !self.in_order_client(sslot.clone(),pkt_hdr) {   
+            self.out_of_order += 1;
             trace!(
                 "Received out-of-order response. Rpc Header: {}, cur_req_num: {}, num_rx: {} num_tx: {}",
                 pkt_hdr,sslot.borrow().cur_req_num,sslot.borrow().client_info().unwrap().num_rx,
@@ -575,22 +492,16 @@ impl Rpc {
         sslot.borrow_mut().client_info_mut().unwrap().num_rx += 1;
         sslot.borrow_mut().client_info_mut().unwrap().progress_tsc=self.ev_loop_tsc;
 
-        //Special handling for single-packet response
-        /* if pkt_hdr.msg_size() as usize <= TTR_MAX_DATA_PER_PKT {
-            println!("{}",pkt_hdr.msg_size());
-            unimplemented!()
-        } */
-        //else{
-            let req_msgbuf=sslot.borrow().tx_msgbuf.as_ref().unwrap().clone();
+        let req_msgbuf=sslot.borrow().tx_msgbuf.as_ref().unwrap().clone();
 
-            if pkt_hdr.pkt_num() == req_msgbuf.num_pkts() as u16-1 {
-                //This is the first response packet
-                let mut sm=sslot.borrow_mut();
-               let resp_msgbuf= sm.client_info_mut().unwrap()
-                .resp_msgbuf.as_mut().unwrap();
-                resp_msgbuf.resize_msg_buffer(pkt_hdr.msg_size() as usize);
-                resp_msgbuf.get_pkthdr_0().buf_mut().copy_from_slice(pkt_hdr.buf());
-            }
+        if pkt_hdr.pkt_num() == req_msgbuf.num_pkts() as u16 - 1 {
+            //This is the first response packet
+            let mut sm=sslot.borrow_mut();
+           let resp_msgbuf= sm.client_info_mut().unwrap()
+            .resp_msgbuf.as_mut().unwrap();
+            resp_msgbuf.resize_msg_buffer(pkt_hdr.msg_size() as usize);
+            resp_msgbuf.get_pkthdr_0().buf_mut().copy_from_slice(pkt_hdr.buf());
+        }
 
             let wire_pkts=req_msgbuf.num_pkts() +
             sslot.borrow().client_info().unwrap().resp_msgbuf.as_ref().unwrap().num_pkts() -1;
@@ -667,12 +578,12 @@ impl Rpc {
     ){
         if !client {
             for i in 0..self.sslot_arr.len() {
-                self.sslot_arr[i].as_mut().unwrap().borrow_mut().pre_resp_msgbuf=MsgBuffer::ALLOCA_MSG(max_data_size);
+                self.sslot_arr[i].as_mut().unwrap().borrow_mut().pre_resp_msgbuf = MsgBuffer::ALLOCA_MSG(max_data_size);
             }
         }
     }
 
-    pub fn is_connected(&self)->bool{
+    pub fn is_connected(&self) -> bool {
         // 
         true
     }
@@ -734,6 +645,8 @@ impl Rpc {
         pkt_hdr.set_pkt_type(PktType::Req);
         pkt_hdr.set_pkt_num(0);
         pkt_hdr.set_magic(11);
+        pkt_hdr.set_ts(Instant::now().total_micros() as u64);
+
         assert_eq!(pkt_hdr.magic(), 11);
         assert_eq!(pkt_hdr.pkt_num(),0);
         assert_eq!(pkt_hdr.pkt_type(),PktType::Req);
@@ -791,6 +704,7 @@ impl Rpc {
         pkt_hdr.set_pkt_num(sslot.borrow().server_info().unwrap().sav_num_req_pkts as u16 - 1);
         pkt_hdr.set_magic(11);
         pkt_hdr.set_pkt_type(PktType::Resp);
+        pkt_hdr.set_ts(Instant::now().total_micros() as u64);
 
         assert_eq!(pkt_hdr.pkt_type(),PktType::Resp);
         assert_eq!(pkt_hdr.magic(),11);
@@ -892,6 +806,18 @@ impl Rpc {
         for item in self.tx_burst_batch.drain(..) {
             let msg_buffer=&item.msg_buffer;
             let mut buf=msg_buffer.get_buf_n(item.pkt_idx);
+            {
+                let mut rpchdr = RpcHeader::from_slice(buf.chunk());
+                let before = rpchdr.ts();
+                let now = Instant::now().total_micros() as u64;
+                if self.avg_tx == 0 {
+                    self.avg_tx = now - before;
+                } else {
+                    self.avg_tx = (self.avg_tx * 3 + now - before + 4) / 4;
+                }
+                rpchdr.set_ts(self.avg_tx);
+            }
+
             buf.advance(42);
 
             let mut udp_pkt=UdpPacket::prepend_header(buf, &UDP_HEADER_TEMPLATE);
@@ -914,6 +840,7 @@ impl Rpc {
             let mut mbuf = Mbuf::from_slice(buf.chunk(), &self.mp).unwrap();
             buf.move_back(HEADER_LEN);
             mbuf.extend_front_from_slice(buf.chunk());
+
 
             let mut ol_flag = run_dpdk::offload::MbufTxOffload::ALL_DISABLED;
             ol_flag.set_l2_len(ETHER_HEADER_LEN as u64);
