@@ -109,7 +109,10 @@ fn init_port(port_id: u16,
 }
 
 fn main(){
-  env_logger::init();
+  env_logger::builder()
+    // setting this to None disables the timestamp
+    .format_timestamp(Some(env_logger::TimestampPrecision::Micros))
+    .init();
   let mut nexus=Nexus::new().unwrap();
 
   init_eal(DPDK_PORT_ID);
@@ -143,15 +146,6 @@ fn main(){
   while run.load(Ordering::Relaxed) {
     rpc.run_event_loop_once();
   }
-
-  service().port_close(DPDK_PORT_ID).unwrap();
-  println!("port closed");
-
-  service().mempool_free("mp").unwrap();
-  println!("mempool freed");
-
-  service().service_close().unwrap();
-  println!("dpdk service shutdown gracefully");
 }
 
 fn req_func(req_handle:ReqHandle,_ctx:RpcContext){
@@ -164,6 +158,9 @@ fn req_func(req_handle:ReqHandle,_ctx:RpcContext){
         resp.copy_data_from_buf(&mut cursor, pkt_idx);
     }
 
+
+    let end = run_time::Instant::now() - run_time::Instant::now();
+    println!("{}",end.as_nanos());
     //println!("ending processing");
 }
 

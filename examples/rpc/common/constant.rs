@@ -21,12 +21,12 @@ pub const MAX_CLASS_SIZE:usize=8*1024*1024;
 
 
 /// TTr
-pub const TTR_MAX_DATA_PER_PKT:usize= 8000;
+pub const TTR_MAX_DATA_PER_PKT:usize= 1950;
 pub const TTR_NUM_RX_RING_ENTRIES:usize=4096;
 pub const TTR_UNSIG_BATCH:usize=32;
 
 /// microseconds
-pub const RPC_REQUEST_TIMEOUT:u64=5000;
+pub const RPC_REQUEST_TIMEOUT:u64=512;
 pub const INVALID_RPC_ID:u8=MAX_RPC_ID as u8 +1;
 
 pub const MAX_PHY_PORT:u8=16;

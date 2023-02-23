@@ -5,8 +5,9 @@ use bytes::Buf;
 use log::trace;
 use run_dpdk::{Mbuf, Pbuf, TxQueue, RxQueue, Mempool};
 use run_packet::{ether::{self, MacAddr, EtherType, EtherPacket, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, ipv4::{Ipv4Addr, self, IpProtocol, Ipv4Packet, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN}, udp::{self, UDP_HEADER_TEMPLATE, UdpPacket, UDP_HEADER_LEN}, PktBuf};
+use smoltcp::time::Instant;
 
-use crate::common::{constant::{SESSION_CREDITS, MAX_MSG_SIZE, TTR_MAX_DATA_PER_PKT, INVALID_REQ_TYPE}, msgbuffer::{RPC_HEADER_LEN, HEADER_LEN}, sslot::{ClientInfo, Info}};
+use crate::common::{constant::{SESSION_CREDITS, MAX_MSG_SIZE, TTR_MAX_DATA_PER_PKT, INVALID_REQ_TYPE}, msgbuffer::{RPC_HEADER_LEN, HEADER_LEN}, sslot::{ClientInfo, Info}, time::to_usec};
 
 use super::{sslot::SSlot, msgbuffer::{MsgBuffer, RpcHeader, PktType}, transport::{TxBurstItem}, nexus::Nexus, constant::{SESSION_REQ_WINDOW, REQ_TYPE_ARRAY_SIZE, TTR_UNSIG_BATCH}, time::{rdtsc, ms_to_cycles}};
 
@@ -109,6 +110,24 @@ pub struct Rpc {
     pub(crate) rx_ring:ArrayVec<Mbuf,32>,
     pub(crate) ctrl_msgbufs:[Option<MsgBuffer>;TTR_UNSIG_BATCH*2],
     pub(crate) ctrl_msg_head:usize,
+
+    pub(crate) retrasmit_count:u64,
+    pub(crate) max_event_loop_tsc:u64,
+    pub(crate) avg_event_loop_tsc:u64,
+    pub(crate) avg_rx_tsc:u64,
+    pub(crate) avg_tx_tsc:u64,
+    pub(crate) avg_pkt_loss:u64,
+}
+
+impl Drop for Rpc {
+    fn drop(&mut self) {
+        println!("RPC Retrasmit count: {}",self.retrasmit_count);
+        println!("RCP Max Event Loop Time: {}us",to_usec(self.max_event_loop_tsc,self.freq_ghz));
+        println!("RCP Avg Event Loop Time: {}us",to_usec(self.avg_event_loop_tsc,self.freq_ghz));
+        println!("RCP Avg RX Time: {}us",to_usec(self.avg_rx_tsc,self.freq_ghz));
+        println!("RCP Avg TX Time: {}us",to_usec(self.avg_tx_tsc,self.freq_ghz));
+        println!("RCP Avg PKT LOSS Time: {}us",to_usec(self.avg_pkt_loss,self.freq_ghz));
+    }
 }
 
 impl Rpc {
@@ -117,21 +136,49 @@ impl Rpc {
     }
 
     fn run_event_loop_do_one_st(&mut self){
-        self.ev_loop_tsc=rdtsc();
+        self.ev_loop_tsc = rdtsc();
         // packet Rx code use ev_loop_tsc as the Rx timestamp
         // So it must be next to ev_loop_tsc
         self.process_comps_st(); // Rx code
+        let t1 = rdtsc();
+        if self.avg_rx_tsc == 0 {
+            self.avg_rx_tsc = t1 - self.ev_loop_tsc;
+        } else {
+            self.avg_rx_tsc = ((self.avg_rx_tsc) + t1 - self.ev_loop_tsc) / 2;
+        }
 
         self.process_credit_stall_queue_st(); // Tx Code
 
-
         if !self.tx_burst_batch.is_empty() {
+            trace!("event loop do tx burst");
             self.do_tx_burst_st();
         }
 
-        if self.ev_loop_tsc - self.pkt_loss_scan_tsc > self.rpc_pkt_loss_scan_cycles{
-            self.pkt_loss_scan_tsc=self.ev_loop_tsc;
+        let t2 = rdtsc();
+        if self.avg_tx_tsc == 0 {
+            self.avg_tx_tsc = t2 - t1;
+        } else {
+            self.avg_tx_tsc = (self.avg_tx_tsc + t2 - t1) / 2;
+        }
+
+        if self.ev_loop_tsc - self.pkt_loss_scan_tsc > self.rpc_pkt_loss_scan_cycles {
+            self.pkt_loss_scan_tsc = self.ev_loop_tsc;
             self.pkt_loss_scan_st();
+        }
+
+        let t3 = rdtsc();
+        if self.avg_pkt_loss == 0 {
+            self.avg_pkt_loss = t3 - t2;
+        } else {
+            self.avg_pkt_loss = (self.avg_pkt_loss + t3 - t2) / 2;
+        }
+
+        let diff = t3 - self.ev_loop_tsc;
+        self.max_event_loop_tsc = std::cmp::max(self.max_event_loop_tsc,diff);
+        if self.avg_event_loop_tsc == 0 {
+            self.avg_event_loop_tsc = diff;
+        } else {
+            self.avg_event_loop_tsc = ((self.avg_event_loop_tsc) + diff) / 2;
         }
     }
 
@@ -165,6 +212,7 @@ impl Rpc {
             }
 
             if self.ev_loop_tsc - sslot.borrow().client_info().unwrap().progress_tsc > self.rpc_rto_cycles {
+                self.retrasmit_count += 1;
                 self.pkt_loss_retransmit_st(sslot.clone());
                 self.drain_tx_batch_and_dma_queue();
             }
@@ -272,7 +320,7 @@ impl Rpc {
             pkt_idx: 0,
             drop: false,
         };
-
+        trace!("enqueue header to tx burst");
         self.tx_burst_batch.push(item);
         if self.tx_burst_batch.is_full() {
             self.do_tx_burst_st();
@@ -293,6 +341,7 @@ impl Rpc {
         let mut rx_ring=self.rx_ring.take();
         
         for mut mbuf in rx_ring.drain(..) {
+            
             let mut pbuf = Pbuf::new(&mut mbuf);
             let epkt = ether::EtherPacket::parse(pbuf).unwrap();
             if epkt.dest_mac() != self.local_mac {
@@ -362,6 +411,7 @@ impl Rpc {
                 }
             };
         }
+
     }
 
     fn process_small_req_st(&mut self,sslot:Rc<RefCell<SSlot>>,pkt_hdr:&RpcHeader){
@@ -387,6 +437,7 @@ impl Rpc {
                 if sslot.borrow().tx_msgbuf.is_some() {
                     self.enqueue_pkt_tx_burst_st(sslot, 0);
                     self.drain_tx_batch_and_dma_queue();
+                    println!("retransmitting");
                     return;
                 }
                 trace!(
@@ -440,6 +491,7 @@ impl Rpc {
     /// Complete transmission for all packets in the Rpc's TX batch and the
     /// transport's DMA queue
     fn drain_tx_batch_and_dma_queue(&mut self){
+        trace!("drain tx batch and dma queue");
         if !self.tx_burst_batch.is_empty() {
             self.do_tx_burst_st();
         }
@@ -514,8 +566,13 @@ impl Rpc {
             );
             return;
         }
-        self.credits+=1;
-        sslot.borrow_mut().client_info_mut().unwrap().num_rx+=1;
+        trace!(
+            "Received a response. Rpc Header: {}, cur_req_num: {}, num_rx: {} num_tx: {}",
+            pkt_hdr,sslot.borrow().cur_req_num,sslot.borrow().client_info().unwrap().num_rx,
+            sslot.borrow().client_info().unwrap().num_tx
+        );
+        self.credits += 1;
+        sslot.borrow_mut().client_info_mut().unwrap().num_rx += 1;
         sslot.borrow_mut().client_info_mut().unwrap().progress_tsc=self.ev_loop_tsc;
 
         //Special handling for single-packet response
@@ -588,7 +645,7 @@ impl Rpc {
 
     #[inline]
     fn in_order_client(&mut self,sslot:Rc<RefCell<SSlot>>,pkt_hdr:&RpcHeader)->bool{
-        if pkt_hdr.req_num()!=sslot.borrow().cur_req_num as u64 {
+        if pkt_hdr.req_num() != sslot.borrow().cur_req_num as u64 {
             return false;
         }
 
@@ -639,12 +696,13 @@ impl Rpc {
                 cont_func,
                 tag
             };
+            trace!("no enough sslot,enque req to back");
             if self.enq_req_backlog.len() < 64 {
                 self.enq_req_backlog.push_back(args);
             }
             return ;
         }
-
+        
         //Fill in the sslot info
         let sslot_i = self.sslot_free_vec.pop().unwrap();
         let sslot=self.sslot_arr[sslot_i].clone().unwrap();
@@ -688,13 +746,21 @@ impl Rpc {
         }
 
         if self.credits > 0 {
-            //
+            trace!("enqueue a request: 
+            req num {}, 
+            msg size {},
+            pkt num {},
+            credits {}",
+            pkt_hdr.req_num(),
+            pkt_hdr.msg_size(),
+            pkt_hdr.pkt_num(),
+            self.credits);
             self.kick_req_st(sslot);
         }
         else{
+            trace!("no enough credits, stall request");
             self.stall_q.push(sslot);
         }
-
         
     }
 
@@ -722,13 +788,13 @@ impl Rpc {
         pkt_hdr.set_req_num(sslot.borrow().cur_req_num as u64);
         pkt_hdr.set_msg_size(resp_msgbuf.data_size() as u32);
         
-        pkt_hdr.set_pkt_num(sslot.borrow().server_info().unwrap().sav_num_req_pkts as u16-1 );
+        pkt_hdr.set_pkt_num(sslot.borrow().server_info().unwrap().sav_num_req_pkts as u16 - 1);
         pkt_hdr.set_magic(11);
         pkt_hdr.set_pkt_type(PktType::Resp);
 
         assert_eq!(pkt_hdr.pkt_type(),PktType::Resp);
         assert_eq!(pkt_hdr.magic(),11);
-        assert_eq!(pkt_hdr.pkt_num(),sslot.borrow().server_info().unwrap().sav_num_req_pkts as u16-1);
+        assert_eq!(pkt_hdr.pkt_num(),sslot.borrow().server_info().unwrap().sav_num_req_pkts as u16 - 1);
         assert_eq!(pkt_hdr.msg_size(),resp_msgbuf.data_size() as u32);
         assert_eq!(pkt_hdr.req_num(),sslot.borrow().cur_req_num as u64);
 
@@ -793,7 +859,7 @@ impl Rpc {
     fn kick_req_st(&mut self,sslot:Rc<RefCell<SSlot>>){
         let sending=std::cmp::min(
             self.credits as usize,
-            sslot.borrow().tx_msgbuf.as_ref().unwrap().num_pkts()-
+            sslot.borrow().tx_msgbuf.as_ref().unwrap().num_pkts() - 
             sslot.borrow().client_info().unwrap().num_tx 
         );
 
@@ -811,6 +877,7 @@ impl Rpc {
             pkt_idx:pkt_idx,
             drop:false
         };
+        trace!("enqueue packet to tx burst");
         self.tx_burst_batch.push(item);
         if self.tx_burst_batch.is_full() {
             self.do_tx_burst_st();
@@ -856,7 +923,7 @@ impl Rpc {
             mbuf.set_tx_offload(&ol_flag);
             batch.push(mbuf);
         }
-
+        trace!("do send {} packet",batch.len());
         while !batch.is_empty() {
             self.txq.tx(&mut batch);
         }

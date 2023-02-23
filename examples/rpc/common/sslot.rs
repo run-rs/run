@@ -1,5 +1,7 @@
 use std::{cell::{RefCell}, rc::Rc};
 
+use smoltcp::time::Instant;
+
 use super::{msgbuffer::MsgBuffer, transport::RoutingInfo, rpc::Tag, constant::{SESSION_CREDITS, INVALID_REQ_TYPE}};
 
 
@@ -15,6 +17,8 @@ pub struct SSlot{
     ///Info about the current request
     pub(crate) cur_req_num:usize,
 
+    pub(crate) ts:Instant,
+
     pub(crate) remote_routing_info:RoutingInfo,
 
     pub(crate) info:Info,
@@ -28,6 +32,7 @@ impl SSlot {
             pre_resp_msgbuf: MsgBuffer::EMPTY(), 
             index: index, 
             tx_msgbuf: None, 
+            ts:Instant::from_micros(0),
             cur_req_num: index, 
             remote_routing_info: RoutingInfo::default(), 
             info: Info::Client(ClientInfo::default()) 
@@ -38,6 +43,7 @@ impl SSlot {
             pre_resp_msgbuf: MsgBuffer::EMPTY(), 
             index: index, 
             tx_msgbuf: None, 
+            ts:Instant::from_micros(0),
             cur_req_num: index, 
             remote_routing_info: RoutingInfo::default(), 
             info: Info::Server(ServerInfo::default()) 

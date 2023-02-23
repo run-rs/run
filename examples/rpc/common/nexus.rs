@@ -15,7 +15,7 @@ use run_packet::ipv4::Ipv4Addr;
 
 
 use crate::common::constant::{RPC_REQUEST_TIMEOUT, SESSION_REQ_WINDOW, TTR_UNSIG_BATCH};
-use crate::common::time::us_to_cycles;
+use crate::common::time::{us_to_cycles, ms_to_cycles};
 use crate::common::msgbuffer::{MsgBuffer, HEADER_LEN};
 use crate::common::sslot::SSlot;
 use crate::common::rpc::{ReqFunc, Rpc, RpcContext};
@@ -85,8 +85,8 @@ impl Nexus {
     )->Rpc{
         let nexus=self.ptr.lock().unwrap();
         let freq_ghz=nexus.freq_ghz;
-        let rpc_rto_cycles=us_to_cycles(RPC_REQUEST_TIMEOUT as f64, freq_ghz);
-        let rpc_pkt_loss_scan_cycle=rpc_rto_cycles/10;
+        let rpc_rto_cycles=ms_to_cycles(RPC_REQUEST_TIMEOUT as f64, freq_ghz);
+        let rpc_pkt_loss_scan_cycle = rpc_rto_cycles / 10;
         let mut sslot_arr:[Option<Rc<RefCell<SSlot>>>;SESSION_REQ_WINDOW]=unsafe{std::mem::zeroed()};
         let mut ctrl_msgbufs:[Option<MsgBuffer>;TTR_UNSIG_BATCH*2]=unsafe{std::mem::zeroed()};
         let mut sslot_free_vec=ArrayVec::new();
@@ -112,7 +112,7 @@ impl Nexus {
         let req_funcs=nexus.req_funcs.clone();
         nexus.req_func_registration_allowed.store(false, Ordering::Relaxed);
 
-        let rpc=Rpc{
+        let rpc=Rpc {
             nexus:self.clone(),
             is_client:client,
             context:RpcContext::default(),
@@ -139,10 +139,16 @@ impl Nexus {
             req_funcs:req_funcs,
             sslot_arr:sslot_arr,
             stall_q:Vec::new(),
-            tx_burst_batch:ArrayVec::new(),
             rx_ring:ArrayVec::new(),
+            tx_burst_batch:ArrayVec::new(),
             ctrl_msgbufs:ctrl_msgbufs,
             ctrl_msg_head:0,
+            retrasmit_count:0,
+            max_event_loop_tsc:0,
+            avg_event_loop_tsc:0,
+            avg_rx_tsc:0,
+            avg_tx_tsc:0,
+            avg_pkt_loss:0,
         };
         let head=rpc.active_rpcs_head_sentinel.clone();
         let tail=rpc.active_rpcs_tail_sentinel.clone();

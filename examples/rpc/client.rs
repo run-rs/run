@@ -1,7 +1,6 @@
 use std::{sync::{atomic::{AtomicBool, Ordering, AtomicU64}, Arc}, time::Duration, io::Write};
 
 use bytes::Buf;
-use log::trace;
 use run_dpdk::{service};
 use run_packet::{ipv4::{Ipv4Addr, IPV4_HEADER_LEN}, ether::{MacAddr}, udp::UDP_HEADER_LEN};
 
@@ -22,9 +21,8 @@ const SERVER_MAC:MacAddr = MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]);
 const SERVER_PORT:u16 = 9000;
 const DPDK_PORT_ID:u16 = 3;
 
-const RESP_SIZE:usize = 8000;
-
 const MTU:usize = TTR_MAX_DATA_PER_PKT  + UDP_HEADER_LEN  +IPV4_HEADER_LEN + RPC_HEADER_LEN;
+const RESP_SIZE:usize = 8000;
 
 fn init_eal(port_id:u16) -> bool {
     match run_dpdk::DpdkOption::new().init() {
@@ -79,7 +77,7 @@ fn init_port(port_id: u16,
     pconf.tx_offloads.enable_multi_segs();
     pconf.tx_offloads.enable_ipv4_cksum();
     pconf.rx_offloads.enable_scatter();
-    pconf.mtu = MTU as u32;
+    pconf.mtu = 9000;
 
   
     rxq_conf.mp_name = mp_name.to_string();
@@ -108,10 +106,14 @@ fn init_port(port_id: u16,
 }
 
 fn main(){
-    env_logger::init();
+    env_logger::builder()
+    // setting this to None disables the timestamp
+    .format_timestamp(Some(env_logger::TimestampPrecision::Micros))
+    .init();
+    
     let nexus=Nexus::new().unwrap();
     let freq_ghz=nexus.freq_ghz();
-
+    println!("freq: {}",freq_ghz);
     init_eal(DPDK_PORT_ID);
 
     let mut rpc=nexus.create_rpc(
@@ -192,26 +194,23 @@ fn main(){
     
     
     while run.load(std::sync::atomic::Ordering::Relaxed) {
-        rpc.enqueue_request(
-            2, 
-            req.clone(), 
-            resp.clone(), 
-            cont_func, 
-            Tag::default()
-        );
+        if REQUEST_ALLOW.load(Ordering::Relaxed) {
+            rpc.enqueue_request(
+                2, 
+                req.clone(), 
+                resp.clone(), 
+                cont_func, 
+                Tag::default()
+            );
+            REQUEST_ALLOW.store(false, Ordering::Relaxed);
+            SEND_TSC.store(rdtsc(), Ordering::Relaxed);   
+        }
         rpc.run_event_loop_once();
     }
 
-    service().port_close(DPDK_PORT_ID).unwrap();
-    println!("port closed");
-
-    service().mempool_free("mp").unwrap();
-    println!("mempool freed");
-
-    service().service_close().unwrap();
-    println!("dpdk service shutdown gracefully");
 }
 
+static REQUEST_ALLOW:AtomicBool=AtomicBool::new(true);
 static RECEIVE_BYTES:AtomicU64=AtomicU64::new(0);
 static FINISH_CALLS:AtomicU64=AtomicU64::new(0);
 static SEND_TSC:AtomicU64=AtomicU64::new(0);
@@ -222,13 +221,14 @@ static LATENCY:AtomicU64=AtomicU64::new(0);
 fn cont_func(resp:MsgBuffer){
     let last_tsc=SEND_TSC.load(Ordering::Relaxed);
     LATENCY.store(rdtsc()-last_tsc, Ordering::Relaxed);
+    REQUEST_ALLOW.store(true, Ordering::Relaxed);
 
     let num_pkts=resp.num_pkts();
-    trace!("receive {} packets",num_pkts);
+
     for i in 0.. num_pkts {
         let mut buf=resp.get_buf_n(i);
         RECEIVE_BYTES.fetch_add(buf.remaining() as u64, Ordering::Relaxed);
-        
+
         while buf.has_remaining() {
             let size =buf.chunk().len();
             buf.advance(size);
