@@ -1,6 +1,7 @@
-use std::{sync::{atomic::{AtomicBool, Ordering, AtomicU64}, Arc}, time::Duration};
+use std::{sync::{atomic::{AtomicBool, Ordering, AtomicU64}, Arc}, time::Duration, io::Write};
 
 use bytes::Buf;
+use log::trace;
 use run_dpdk::{service};
 use run_packet::{ipv4::{Ipv4Addr, IPV4_HEADER_LEN}, ether::{MacAddr}, udp::UDP_HEADER_LEN};
 
@@ -140,37 +141,64 @@ fn main(){
         ctrlc_run.store(false,Ordering::Relaxed);
     }).unwrap();
 
+
+    let run_clone = run.clone();
+
     std::thread::spawn(move ||{
         let mut prev_bytes=0;
         let mut prev_calls=0;
-        loop{
+        let mut opt = std::fs::File::options();
+        opt.append(true);
+        opt.write(true);
+        opt.create(true);
+        let mut file = match opt.open("./data/rpc.csv") {
+                Ok(f) => f,
+                Err(err) => {
+                log::log!(log::Level::Error,"can not open `./data/rpc.csv`. \
+                    please launch at top workspace. : {}",err);
+                run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+            return;
+            }
+        };
+
+        std::thread::sleep(Duration::from_secs(5));
+        RECEIVE_BYTES.store(0, Ordering::Relaxed);
+        FINISH_CALLS.store(0, Ordering::Relaxed);
+        let mut max_secs = 60;
+        while run_clone.load(Ordering::Relaxed) {
+            if max_secs == 0 {
+                break;
+            }
+            max_secs -= 1;
             std::thread::sleep(Duration::from_secs(1));
             let cur_bytes=RECEIVE_BYTES.load(Ordering::Relaxed);
-            let diff_bytes=cur_bytes-prev_bytes;
+            let diff_bytes=(cur_bytes-prev_bytes) as f64;
             prev_bytes=cur_bytes;
             let cur_calls=FINISH_CALLS.load(Ordering::Relaxed);
-            let diff_calls=cur_calls-prev_calls;
+            let diff_calls=(cur_calls-prev_calls) as f64;
             prev_calls=cur_calls;
 
-            println!("Troughput:{} bit/s",diff_bytes*8);
+            // MTU,throughput,rpc/s,latency
+            file.write(format!("{},{},{},{}\n",
+            MTU,diff_bytes * 8.0 / 1000000000.0,
+            diff_calls,
+            to_msec(LATENCY.load(Ordering::Relaxed), freq_ghz)).as_bytes()).unwrap();
+            /* println!("Troughput:{} bit/s",diff_bytes*8);
             println!("Finish calls: {} rpc/s",diff_calls);
-            println!("latency: {} ms",to_msec(LATENCY.load(Ordering::Relaxed), freq_ghz));
+            println!("latency: {} ms",to_msec(LATENCY.load(Ordering::Relaxed), freq_ghz)); */
         }
+        run_clone.store(false, Ordering::Relaxed);
     });
     
     
     while run.load(std::sync::atomic::Ordering::Relaxed) {
-        if REQUEST_ALLOW.load(Ordering::Relaxed) {
-            rpc.enqueue_request(
-                2, 
-                req.clone(), 
-                resp.clone(), 
-                cont_func, 
-                Tag::default()
-            );
-            REQUEST_ALLOW.store(false, Ordering::Relaxed);
-            SEND_TSC.store(rdtsc(), Ordering::Relaxed);
-        }
+        rpc.enqueue_request(
+            2, 
+            req.clone(), 
+            resp.clone(), 
+            cont_func, 
+            Tag::default()
+        );
         rpc.run_event_loop_once();
     }
 
@@ -184,7 +212,6 @@ fn main(){
     println!("dpdk service shutdown gracefully");
 }
 
-static REQUEST_ALLOW:AtomicBool=AtomicBool::new(true);
 static RECEIVE_BYTES:AtomicU64=AtomicU64::new(0);
 static FINISH_CALLS:AtomicU64=AtomicU64::new(0);
 static SEND_TSC:AtomicU64=AtomicU64::new(0);
@@ -195,14 +222,13 @@ static LATENCY:AtomicU64=AtomicU64::new(0);
 fn cont_func(resp:MsgBuffer){
     let last_tsc=SEND_TSC.load(Ordering::Relaxed);
     LATENCY.store(rdtsc()-last_tsc, Ordering::Relaxed);
-    REQUEST_ALLOW.store(true, Ordering::Relaxed);
 
     let num_pkts=resp.num_pkts();
-
+    trace!("receive {} packets",num_pkts);
     for i in 0.. num_pkts {
         let mut buf=resp.get_buf_n(i);
         RECEIVE_BYTES.fetch_add(buf.remaining() as u64, Ordering::Relaxed);
-
+        
         while buf.has_remaining() {
             let size =buf.chunk().len();
             buf.advance(size);

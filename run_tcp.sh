@@ -112,12 +112,32 @@ else
   if $trace ; then
     sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/run_tso --period=40 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
   else
-    sudo install/bin/run_tso --period=60 --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
+    sudo install/bin/run_tso --buf-size=60000 --mtu=1518 > run_tso.log 2>&1
   fi
 fi
 echo "done"
 
 
+echo "running rpc..."
+if $client ; then
+  # enable nic jumbo frame
+  # sudo ifconfig ens1f0 mtu 9000
+  # sudo ifconfig ens1f0 mtu 9000
+  # sudo ifconfig ens5f0 mtu 9000
+  # sudo ifconfig ens5f1 mtu 9000
+  if $trace ; then
+    sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/rpc_client 
+  else
+    sudo install/bin/rpc_client 
+  fi
+else
+  if $trace ; then
+    sudo RUST_LOG=trace RUST_BACKTRACE=1 install/bin/rpc_server 
+  else
+    sudo install/bin/rpc_server 
+  fi
+fi
+echo "done"
 
 
 

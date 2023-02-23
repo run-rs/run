@@ -175,11 +175,11 @@ impl MsgBuffer {
         let new_num_pkts= if new_data_size <= TTR_MAX_DATA_PER_PKT {
             1
         }else{
-            (new_data_size + TTR_MAX_DATA_PER_PKT-1)/TTR_MAX_DATA_PER_PKT
+            (new_data_size + TTR_MAX_DATA_PER_PKT -1 ) / TTR_MAX_DATA_PER_PKT
         };
         self.0.borrow_mut().data_size=new_data_size;
         self.0.borrow_mut().num_pkts=new_num_pkts;
-        trace!("Resive msg buffer: new data size :{} new num pkts:{}",new_data_size,new_num_pkts);
+        trace!("Resize msg buffer: new data size :{} new num pkts:{}",new_data_size,(new_data_size + TTR_MAX_DATA_PER_PKT -1 ) / TTR_MAX_DATA_PER_PKT);
     }
     pub unsafe fn buried_buf(&self){
         self.0.borrow_mut().buf=None;

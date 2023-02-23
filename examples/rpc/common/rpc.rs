@@ -519,10 +519,11 @@ impl Rpc {
         sslot.borrow_mut().client_info_mut().unwrap().progress_tsc=self.ev_loop_tsc;
 
         //Special handling for single-packet response
-        if pkt_hdr.msg_size() as usize <= TTR_MAX_DATA_PER_PKT {
+        /* if pkt_hdr.msg_size() as usize <= TTR_MAX_DATA_PER_PKT {
+            println!("{}",pkt_hdr.msg_size());
             unimplemented!()
-        }
-        else{
+        } */
+        //else{
             let req_msgbuf=sslot.borrow().tx_msgbuf.as_ref().unwrap().clone();
 
             if pkt_hdr.pkt_num() == req_msgbuf.num_pkts() as u16-1 {
@@ -553,7 +554,7 @@ impl Rpc {
             if sslot.borrow().client_info().unwrap().num_rx !=wire_pkts {
                 return;
             }// Else fall through to invoke continuation
-        }
+        //}
 
         sslot.borrow_mut().tx_msgbuf=None;
         self.delete_from_active_rpc_list(sslot.clone());
@@ -638,7 +639,9 @@ impl Rpc {
                 cont_func,
                 tag
             };
-            self.enq_req_backlog.push_back(args);
+            if self.enq_req_backlog.len() < 64 {
+                self.enq_req_backlog.push_back(args);
+            }
             return ;
         }
 
