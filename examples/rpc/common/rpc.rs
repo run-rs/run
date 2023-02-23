@@ -4,9 +4,9 @@ use arrayvec::ArrayVec;
 use bytes::Buf;
 use log::trace;
 use run_dpdk::{Mbuf, Pbuf, TxQueue, RxQueue, Mempool};
-use run_packet::{ether::{self, MacAddr, EtherType, EtherPacket, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, ipv4::{Ipv4Addr, self, IpProtocol, Ipv4Packet, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN}, udp::{self, UDP_HEADER_TEMPLATE, UdpPacket, UDP_HEADER_LEN}};
+use run_packet::{ether::{self, MacAddr, EtherType, EtherPacket, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, ipv4::{Ipv4Addr, self, IpProtocol, Ipv4Packet, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN}, udp::{self, UDP_HEADER_TEMPLATE, UdpPacket, UDP_HEADER_LEN}, PktBuf};
 
-use crate::common::{constant::{SESSION_CREDITS, MAX_MSG_SIZE, TTR_MAX_DATA_PER_PKT, INVALID_REQ_TYPE}, msgbuffer::{RPC_HEADER_LEN}, sslot::{ClientInfo, Info}};
+use crate::common::{constant::{SESSION_CREDITS, MAX_MSG_SIZE, TTR_MAX_DATA_PER_PKT, INVALID_REQ_TYPE}, msgbuffer::{RPC_HEADER_LEN, HEADER_LEN}, sslot::{ClientInfo, Info}};
 
 use super::{sslot::SSlot, msgbuffer::{MsgBuffer, RpcHeader, PktType}, transport::{TxBurstItem}, nexus::Nexus, constant::{SESSION_REQ_WINDOW, REQ_TYPE_ARRAY_SIZE, TTR_UNSIG_BATCH}, time::{rdtsc, ms_to_cycles}};
 
@@ -820,7 +820,6 @@ impl Rpc {
             let msg_buffer=&item.msg_buffer;
             let mut buf=msg_buffer.get_buf_n(item.pkt_idx);
             buf.advance(42);
-            let payload_len = buf.remaining();
 
             let mut udp_pkt=UdpPacket::prepend_header(buf, &UDP_HEADER_TEMPLATE);
             udp_pkt.set_dest_port(self.remote_port);
@@ -831,14 +830,17 @@ impl Rpc {
             ippkt.set_dest_ip(self.remote_ipv4);
             ippkt.set_source_ip(self.local_ipv4);
             ippkt.set_time_to_live(64);
-            ippkt.set_packet_len_unchecked((payload_len + UDP_HEADER_LEN + IPV4_HEADER_LEN) as u16);
 
             let mut ethpkt = EtherPacket::prepend_header(ippkt.release(), &ETHER_HEADER_TEMPLATE);
             ethpkt.set_dest_mac(self.remote_mac);
             ethpkt.set_source_mac(self.local_mac);
             ethpkt.set_ethertype(EtherType::IPV4);
 
-            let mut mbuf = Mbuf::from_slice(ethpkt.release().chunk(), &self.mp).unwrap();
+            buf = ethpkt.release();
+            buf.advance(HEADER_LEN);
+            let mut mbuf = Mbuf::from_slice(buf.chunk(), &self.mp).unwrap();
+            buf.move_back(HEADER_LEN);
+            mbuf.extend_front_from_slice(buf.chunk());
 
             let mut ol_flag = run_dpdk::offload::MbufTxOffload::ALL_DISABLED;
             ol_flag.set_l2_len(ETHER_HEADER_LEN as u64);
