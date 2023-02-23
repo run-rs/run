@@ -122,6 +122,7 @@ fn main() {
                     let mut ippkt =
                         Ipv4Packet::prepend_header(tcppkt.release(), &IPV4_HEADER_TEMPLATE);
                     ippkt.set_ident(0x5c65);
+                    ippkt.set_protocol(IpProtocol::TCP);
                     ippkt.clear_flags();
                     ippkt.set_time_to_live(128);
                     ippkt.set_source_ip(Ipv4Addr([192, 168, 57, 10 + (adder % total_ips)]));

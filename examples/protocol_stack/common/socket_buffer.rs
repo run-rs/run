@@ -24,43 +24,37 @@ impl SocketBuffer {
     }
   }
 
-  #[must_use]
   pub fn clear(&mut self) {
     self.read_at = 0;
     self.length = 0;
   }
 
-  #[must_use]
   pub fn cap(&self) -> usize {
     self.cap
   }
 
-  #[must_use]
   pub fn len(&self) -> usize {
     self.length
   }
 
-  #[must_use]
   pub fn window_size(&self) -> usize {
     self.cap() - self.len()
   }
 
-  #[must_use]
   pub fn contiguous_window_size(&self) -> usize {
     std::cmp::min(self.window_size(),self.cap - self.get_idx(self.length))
   }
 
-  #[must_use]
   fn get_idx(&self,idx:usize) -> usize {
     (self.read_at + idx) % self.cap
   }
 
-  #[must_use]
+  #[allow(dead_code)]
   pub fn is_empty(&self) ->bool {
     self.len() == 0
   }
-
-  #[must_use]
+  
+  #[allow(dead_code)]
   pub fn is_full(&self) -> bool {
     self.window_size() == 0
   }
@@ -68,7 +62,6 @@ impl SocketBuffer {
 
 
 impl SocketBuffer {
-  #[must_use]
   fn enqueue_many(&mut self,buf:&[u8]) -> usize {
     let len = std::cmp::min(self.contiguous_window_size(),buf.len());
     unsafe {
@@ -80,7 +73,6 @@ impl SocketBuffer {
     return len;
   }
 
-  #[must_use]
   fn dequeue_many(&mut self,buf:&mut [u8]) -> usize {
     let len = std::cmp::min(self.len(),buf.len());
     unsafe {
@@ -93,14 +85,12 @@ impl SocketBuffer {
     return len;
   }
 
-  #[must_use]
   pub fn enqueue_slice(&mut self,data:&[u8]) -> usize {
     let size1 = self.enqueue_many(data);
     let size2 = self.enqueue_many(&data[size1..]);
     size1 + size2
   }
 
-  #[must_use]
   pub fn dequeue_slice(&mut self,data:&mut [u8]) ->usize {
     let size1 = self.dequeue_many(data);
     let size2 = self.dequeue_many(&mut data[size1..]);
@@ -110,7 +100,6 @@ impl SocketBuffer {
 
 
 impl SocketBuffer {
-  #[must_use]
   pub fn write_unallocated(&mut self,mut offset:usize,data:&[u8]) -> usize {
     offset = self.length + offset;
     let can_write = std::cmp::min(data.len(),self.window_size());
@@ -127,13 +116,11 @@ impl SocketBuffer {
     can_write
   }
 
-  #[must_use]
   pub fn enqueue_unallocated(&mut self,count:usize) {
     assert!(count <= self.window_size());
     self.length += count;
   }
 
-  #[must_use]
   pub fn read_allocated(&mut self,mut offset:usize,data:&mut [u8]) -> usize {
     offset = self.length + offset;
     let can_read = std::cmp::min(data.len(),self.len());
@@ -151,7 +138,6 @@ impl SocketBuffer {
     can_read
   }
 
-  #[must_use]
   pub fn dequeue_allocated(&mut self, count:usize) {
     self.length -= count;
     self.read_at = self.get_idx(count);

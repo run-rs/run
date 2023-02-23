@@ -78,7 +78,7 @@ fn main() {
     let mut run_clone = run.clone();
     ctrlc::set_handler(move || {
         run_clone.store(false, Ordering::Relaxed);
-    })
+    });
     while run.load(Ordering::Relaxed) {
         let mut rxq = service().rx_queue(port_id, 0).unwrap();
         let mut batch:ArrayVec<Mbuf, 32> = ArrayVec::new();

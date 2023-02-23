@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum PollAt {
     /// The socket needs to be polled immidiately.
@@ -58,34 +59,9 @@ impl Timer {
     }
   }
 
-  pub(crate) fn poll_at(&self) -> PollAt {
-    match *self {
-      Timer::Idle {
-          keep_alive_at: Some(keep_alive_at),
-      } => PollAt::Time(keep_alive_at),
-      Timer::Idle {
-          keep_alive_at: None,
-      } => PollAt::Ingress,
-      Timer::Retransmit { expires_at, .. } => PollAt::Time(expires_at),
-      Timer::FastRetransmit => PollAt::Now,
-      Timer::Close { expires_at } => PollAt::Time(expires_at),
-    }
-  }
-
   pub fn set_for_idle(&mut self, timestamp: smoltcp::time::Instant, interval: Option<smoltcp::time::Duration>) {
     *self = Timer::Idle {
         keep_alive_at: interval.map(|interval| timestamp + interval),
-    }
-  }
-
-  pub fn set_keep_alive(&mut self) {
-    if let Timer::Idle {
-        ref mut keep_alive_at,
-    } = *self
-    {
-        if keep_alive_at.is_none() {
-            *keep_alive_at = Some(smoltcp::time::Instant::from_millis(0))
-        }
     }
   }
 

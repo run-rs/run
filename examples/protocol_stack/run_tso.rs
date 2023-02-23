@@ -1,12 +1,11 @@
 mod common;
 
-use std::{str::FromStr, sync::{Arc, atomic::{AtomicBool, AtomicI64}}, time::Duration, io::Write};
+use std::{sync::{Arc, atomic::{AtomicBool, AtomicI64}}, time::Duration, io::Write};
 
 use clap::Parser;
 
 use common::{stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber}}, Producer};
-use run_dpdk::Pbuf;
-use run_packet::{tcp::{TcpPacket, TcpOption}, ipv4::{Ipv4Packet, IpProtocol, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN, Ipv4Addr}, ether::{EtherPacket, MacAddr, EtherType, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, PktMut, Buf};
+use run_packet::{tcp::{TcpPacket, TcpOption}, ipv4::{Ipv4Packet, IpProtocol, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN, Ipv4Addr}, ether::{EtherPacket, MacAddr, EtherType, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN}, Buf};
 
 
 #[derive(Parser)]
@@ -82,7 +81,7 @@ impl SendNothing {
 }
 
 impl Producer for SendNothing {
-  fn produce(&mut self,size:usize) -> Option<&[u8]> {
+  fn produce(&mut self,_size:usize) -> Option<&[u8]> {
       return Some(&[])
   }
 }
@@ -360,7 +359,7 @@ fn server_start(args:&Flags) {
       assert!(sent_diff >= 0 );
       assert!(recv_diff >= 0 );
 
-      let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
+      //let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
       let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
 
       match file.write_all(format!("{},{}\n",mtu,rx_bps).as_bytes()) {
@@ -444,7 +443,7 @@ fn client_start(args:&Flags) {
       assert!(recv_diff >= 0 );
 
       let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
-      let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
+      //let rx_bps = (recv_diff as f64) * 8.0 / 1000000000.0;
 
       match file.write_all(format!("{},{}\n",mtu,tx_bps).as_bytes()) {
         Ok(_) => (),

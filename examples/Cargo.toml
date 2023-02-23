@@ -14,10 +14,16 @@ run-dpdk = {path = "../run-dpdk", package = "run-dpdk"}
 run-packet = {path = "../run-packet", package = "run-packet"}
 log = { version = "0.4.4"}
 byteorder = "1"
+bytes = "1"
 clap = {version="3.1.6", features=["derive"]}
 mockalloc = "0.1.2"
 env_logger = "0.9"
 pnet = "0.31.0"
+rand = "0.8.5"
+libnuma-sys = "0.0.4"
+nix = "0.23.1"
+libc = "0.2.126"
+
 
 [[example]]
 name = "port_test"
@@ -111,3 +117,11 @@ path = "protocol_stack/cursor_csum_offload.rs"
 [[example]]
 name = "pbuf_csum_offload"
 path = "protocol_stack/pbuf_csum_offload.rs"
+
+[[example]]
+name = "rpc_client"
+path = "rpc/client.rs"
+
+[[example]]
+name = "rpc_server"
+path = "rpc/server.rs"

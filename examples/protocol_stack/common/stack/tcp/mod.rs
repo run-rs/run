@@ -11,15 +11,11 @@ mod ack_delay_timer;
 use arrayvec::ArrayVec;
 use run_dpdk::Mbuf;
 use run_dpdk::Mempool;
-use run_dpdk::Pbuf;
 use run_dpdk::TxQueue;
-use run_packet::PktBuf;
-use run_packet::PktMut;
 pub use tcp_repr::TcpRepr;
 pub use tcp_ctrl::TcpControl;
 pub use seq_number::TcpSeqNumber;
 
-use crate::common::stack::tcp::constant::MAX_TOTAL_HEAD_OVERHEAD;
 
 
 pub trait PacketProcesser {
@@ -148,10 +144,12 @@ where
     self.mss = mss;
   }
   
+  #[allow(dead_code)]
   pub fn enable_tso(&mut self) {
     self.tso = true;
   }
-
+  
+  #[allow(dead_code)]
   pub fn enable_lro(&mut self) {
     self.lro = true;
   }
@@ -188,6 +186,7 @@ where
     self.state = state;
   }
 
+  #[allow(dead_code)]
   fn random_seq_no(&mut self) -> seq_number::TcpSeqNumber {
     seq_number::TcpSeqNumber(self.rand.rand_u32() as i32)
   }
@@ -641,7 +640,7 @@ where
     reply
   }
 
-  fn ack_reply(&mut self,repr:&TcpRepr) -> TcpRepr {
+  fn ack_reply(&mut self,_repr:&TcpRepr) -> TcpRepr {
     let mut reply = TcpRepr { 
       ctrl: tcp_ctrl::TcpControl::None, 
       seq_number: seq_number::TcpSeqNumber(0), 
@@ -699,19 +698,6 @@ where
     }
 
     reply
-  }
-
-  fn reply(&self,repr:&TcpRepr) -> TcpRepr {
-    TcpRepr { 
-      ctrl: tcp_ctrl::TcpControl::None, 
-      seq_number: seq_number::TcpSeqNumber(0), 
-      ack_number: None, 
-      window_len: 0, 
-      window_scale: None, 
-      max_seg_size: None, 
-      sack_permitted: false, 
-      sack_ranges: [None,None,None] 
-    }
   }
 
   fn process(&mut self,

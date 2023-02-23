@@ -189,7 +189,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     let ippkt = Ipv4Packet::parse(ethpkt.payload()).ok()?;
     route_info.src_ipv4 = ippkt.source_ip();
     route_info.dest_ipv4 = ippkt.dest_ip();
-    let mut tcppkt = TcpPacket::parse(ippkt.payload()).ok()?;
+    let tcppkt = TcpPacket::parse(ippkt.payload()).ok()?;
     route_info.dest_port = tcppkt.dst_port();
     route_info.src_port = tcppkt.src_port();
     let payload_offset = ETHER_HEADER_LEN + IPV4_HEADER_LEN + tcppkt.header_len() as usize;

@@ -118,6 +118,7 @@ impl Assembler {
     self.contigs[0]
   }
 
+  #[allow(dead_code)]
   pub fn peek_front(&self) -> Option<usize> {
     let front = self.front();
     if front.has_hole() {

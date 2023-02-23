@@ -1,4 +1,4 @@
-mod device;
+
 mod socket_buffer;
 mod assembler;
 mod rand;
@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use arrayvec::ArrayVec;
-pub use device::DpdkDevice;
 
 
 pub trait Device {
@@ -158,6 +157,8 @@ fn init_port(port_id: u16,
   true
 }
 
+#[allow(unused)]
+#[allow(non_camel_case_types)]
 #[derive(PartialEq, Eq)]
 pub enum OFFLOAD {
   NONE,
