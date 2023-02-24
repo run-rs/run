@@ -22,7 +22,7 @@ const SERVER_PORT:u16 = 9000;
 const DPDK_PORT_ID:u16 = 3;
 
 const MTU:usize = TTR_MAX_DATA_PER_PKT  + UDP_HEADER_LEN  +IPV4_HEADER_LEN + RPC_HEADER_LEN;
-const RESP_SIZE:usize = 8000;
+const RESP_SIZE:usize = 8000000;
 
 fn init_eal(port_id:u16) -> bool {
     match run_dpdk::DpdkOption::new().init() {

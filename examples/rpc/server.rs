@@ -23,7 +23,7 @@ const SERVER_MAC:MacAddr = MacAddr([0x10, 0x70, 0xfd, 0x15, 0x77, 0xc1]);
 const SERVER_PORT:u16 = 9000;
 const DPDK_PORT_ID:u16 = 0;
 
-const RESP_SIZE:usize = 8000;
+const RESP_SIZE:usize = 8000000;
 
 const MTU:usize = TTR_MAX_DATA_PER_PKT  + UDP_HEADER_LEN  +IPV4_HEADER_LEN + RPC_HEADER_LEN;
 
