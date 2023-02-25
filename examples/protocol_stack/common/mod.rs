@@ -1,60 +1,70 @@
-
-mod socket_buffer;
 mod assembler;
 mod rand;
+mod socket_buffer;
 pub mod stack;
 
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use arrayvec::ArrayVec;
 
-
 pub trait Device {
   fn alloc(&mut self) -> Option<run_dpdk::Mbuf>;
-  fn send(&mut self,pkt:run_dpdk::Mbuf) -> Option<run_dpdk::Mbuf>;
-  fn recv(&mut self)->Option<run_dpdk::Mbuf>;
+  fn send(&mut self, pkt: run_dpdk::Mbuf) -> Option<run_dpdk::Mbuf>;
+  fn recv(&mut self) -> Option<run_dpdk::Mbuf>;
 }
 
 pub trait Batch {
+  fn recv_batch<const N: usize>(
+    &mut self,
+    batch: &mut arrayvec::ArrayVec<run_dpdk::Mbuf, N>,
+  );
 
-  fn recv_batch<const N:usize>(&mut self,
-                              batch:&mut arrayvec::ArrayVec<run_dpdk::Mbuf,N>);
+  fn send_batch<const N: usize>(
+    &mut self,
+    batch: &mut arrayvec::ArrayVec<run_dpdk::Mbuf, N>,
+  );
 
-  fn send_batch<const N:usize>(&mut self,
-                              batch:&mut arrayvec::ArrayVec<run_dpdk::Mbuf,N>);
-
-  fn alloc_batch<const N:usize>(&mut self,
-                              batch:&mut arrayvec::ArrayVec<run_dpdk::Mbuf,N>);
+  fn alloc_batch<const N: usize>(
+    &mut self,
+    batch: &mut arrayvec::ArrayVec<run_dpdk::Mbuf, N>,
+  );
 }
 
 pub trait Stack {
-  fn is_close(&self)-> bool;
+  fn is_close(&self) -> bool;
 
-  fn on_recv(&mut self,pkt:run_dpdk::Mbuf,ts:smoltcp::time::Instant) 
-        -> Option<run_dpdk::Mbuf>;
-  
-  fn has_data(&mut self,ts:smoltcp::time::Instant) -> bool;
-  
-  fn do_send(&mut self,mp:&mut run_dpdk::Mempool,ts:smoltcp::time::Instant,txq:&mut run_dpdk::TxQueue);
+  fn on_recv(
+    &mut self,
+    pkt: run_dpdk::Mbuf,
+    ts: smoltcp::time::Instant,
+  ) -> Option<run_dpdk::Mbuf>;
+
+  fn has_data(&mut self, ts: smoltcp::time::Instant) -> bool;
+
+  fn do_send(
+    &mut self,
+    mp: &mut run_dpdk::Mempool,
+    ts: smoltcp::time::Instant,
+    txq: &mut run_dpdk::TxQueue,
+  );
 }
 
-
 pub trait Producer {
-  fn produce(&mut self,size:usize) -> Option<&[u8]>;
+  fn produce(&mut self, size: usize) -> Option<&[u8]>;
 }
 
 pub trait Consumer {
-  fn consume(&mut self,size:usize) -> &mut [u8];
+  fn consume(&mut self, size: usize) -> &mut [u8];
 }
 
-fn init_eal(port_id:u16,offload:OFFLOAD) -> bool {
+fn init_eal(port_id: u16, offload: OFFLOAD) -> bool {
   match run_dpdk::DpdkOption::new().init() {
     Err(err) => {
-      log::log!(log::Level::Error,"EAL INIT {}",err);
+      log::log!(log::Level::Error, "EAL INIT {}", err);
       return false;
-    },
-    _ => ()
+    }
+    _ => (),
   };
   let nb_qs = 1;
   let mp_name = "mp";
@@ -68,44 +78,56 @@ fn init_eal(port_id:u16,offload:OFFLOAD) -> bool {
   rxq_conf.mp_name = "mp".to_string();
   rxq_conf.nb_rx_desc = 1024;
   rxq_conf.socket_id = 0;
-  
+
   let mut txq_conf = run_dpdk::TxQueueConf::default();
   txq_conf.nb_tx_desc = 1024;
   txq_conf.socket_id = 0;
 
-  return init_port(port_id, nb_qs, mp_name, &mut mconf, &mut rxq_conf, &mut txq_conf,offload);
+  return init_port(
+    port_id,
+    nb_qs,
+    mp_name,
+    &mut mconf,
+    &mut rxq_conf,
+    &mut txq_conf,
+    offload,
+  );
 }
 
-fn init_port(port_id: u16,
+fn init_port(
+  port_id: u16,
   nb_qs: u32,
   mp_name: &'static str,
   mpconf: &mut run_dpdk::MempoolConf,
   rxq_conf: &mut run_dpdk::RxQueueConf,
   txq_conf: &mut run_dpdk::TxQueueConf,
-  offload: OFFLOAD) -> bool {
-  
+  offload: OFFLOAD,
+) -> bool {
   let port_infos = run_dpdk::service().port_infos().unwrap();
   let port_info = &port_infos[port_id as usize];
   let socket_id = port_info.socket_id;
 
-
   let tso = offload == OFFLOAD::TSO;
   let lro = offload == OFFLOAD::LRO;
-  let ipv4_csum = offload == OFFLOAD::TSO || 
-                        offload == OFFLOAD::IPV4_CSUM || 
-                        offload == OFFLOAD::IPV4_TCP_CSUM ||
-                        offload == OFFLOAD::LRO;
-  let tcp_csum = offload == OFFLOAD::TSO ||
-                       offload == OFFLOAD::LRO ||
-                       offload == OFFLOAD::IPV4_TCP_CSUM ||
-                       offload == OFFLOAD::TCP_CSUM;
+  let ipv4_csum = offload == OFFLOAD::TSO
+    || offload == OFFLOAD::IPV4_CSUM
+    || offload == OFFLOAD::IPV4_TCP_CSUM
+    || offload == OFFLOAD::LRO;
+  let tcp_csum = offload == OFFLOAD::TSO
+    || offload == OFFLOAD::LRO
+    || offload == OFFLOAD::IPV4_TCP_CSUM
+    || offload == OFFLOAD::TCP_CSUM;
 
-  
   mpconf.socket_id = socket_id;
   match run_dpdk::service().mempool_create(mp_name, mpconf) {
     Ok(_) => (),
     Err(err) => {
-      log::log!(log::Level::Error,"failed to create mempool `{}` : {}",mp_name,err);
+      log::log!(
+        log::Level::Error,
+        "failed to create mempool `{}` : {}",
+        mp_name,
+        err
+      );
       return false;
     }
   };
@@ -145,10 +167,16 @@ fn init_port(port_id: u16,
   }
 
   match run_dpdk::service()
-            .port_configure(port_id, &pconf, &rxq_confs, &txq_confs) {
-    Ok(_) =>(),
+    .port_configure(port_id, &pconf, &rxq_confs, &txq_confs)
+  {
+    Ok(_) => (),
     Err(err) => {
-      log::log!(log::Level::Error,"failed to configure port `{}` : {}",port_id,err);
+      log::log!(
+        log::Level::Error,
+        "failed to configure port `{}` : {}",
+        port_id,
+        err
+      );
       return false;
     }
   }
@@ -166,11 +194,16 @@ pub enum OFFLOAD {
   LRO,
   IPV4_CSUM,
   TCP_CSUM,
-  IPV4_TCP_CSUM
+  IPV4_TCP_CSUM,
 }
 
-pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S,offload:OFFLOAD) {
-  if !init_eal(port_id,offload) {
+pub fn poll<S: Stack>(
+  run: Arc<AtomicBool>,
+  port_id: u16,
+  stack: &mut S,
+  offload: OFFLOAD,
+) {
+  if !init_eal(port_id, offload) {
     run.store(false, std::sync::atomic::Ordering::Relaxed);
     return;
   }
@@ -178,15 +211,18 @@ pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S,offload:OFFL
   let mut rxq = run_dpdk::service().rx_queue(port_id, 0).unwrap();
   let mut txq = run_dpdk::service().tx_queue(port_id, 0).unwrap();
   let mut mp = run_dpdk::service().mempool("mp").unwrap();
-  let mut batch:ArrayVec<Mbuf, 32> = ArrayVec::new();
-  let mut rbatch:ArrayVec<Mbuf,64> = ArrayVec::new();
-  
+  let mut batch: ArrayVec<Mbuf, 32> = ArrayVec::new();
+  let mut rbatch: ArrayVec<Mbuf, 64> = ArrayVec::new();
 
   while run.load(std::sync::atomic::Ordering::Relaxed) {
     let ts = smoltcp::time::Instant::now();
     rxq.rx(&mut batch);
     for mbuf in batch.drain(..) {
-      log::log!(log::Level::Trace,"received a packet {} bytes, diliver to stack",mbuf.len());
+      log::log!(
+        log::Level::Trace,
+        "received a packet {} bytes, diliver to stack",
+        mbuf.len()
+      );
       if let Some(resp) = stack.on_recv(mbuf, ts) {
         unsafe {
           rbatch.push_unchecked(resp);
@@ -195,7 +231,7 @@ pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S,offload:OFFL
     }
     while !rbatch.is_empty() {
       let sent = txq.tx(&mut rbatch);
-      log::log!(log::Level::Trace,"sent response {}",sent);
+      log::log!(log::Level::Trace, "sent response {}", sent);
     }
 
     stack.do_send(&mut mp, ts, &mut txq);
@@ -203,8 +239,8 @@ pub fn poll<S:Stack>(run: Arc<AtomicBool>, port_id:u16,stack:&mut S,offload:OFFL
 }
 
 use run_dpdk::Mbuf;
+pub use run_packet::ether::MacAddr;
 pub use run_packet::ether::ETHER_HEADER_LEN;
+pub use run_packet::ipv4::Ipv4Addr;
 pub use run_packet::ipv4::IPV4_HEADER_LEN;
 pub use run_packet::tcp::TCP_HEADER_LEN;
-pub use run_packet::ether::MacAddr;
-pub use run_packet::ipv4::Ipv4Addr;

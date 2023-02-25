@@ -1,13 +1,13 @@
-#[derive(Debug,PartialEq,Eq,Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct TcpRepr {
-  pub ctrl:super::tcp_ctrl::TcpControl,
+  pub ctrl: super::tcp_ctrl::TcpControl,
   pub seq_number: super::seq_number::TcpSeqNumber,
   pub ack_number: Option<super::seq_number::TcpSeqNumber>,
   pub window_len: u16,
   pub window_scale: Option<u8>,
   pub max_seg_size: Option<u16>,
   pub sack_permitted: bool,
-  pub sack_ranges: [Option<(u32,u32)>;3],
+  pub sack_ranges: [Option<(u32, u32)>; 3],
 }
 
 impl core::fmt::Display for TcpRepr {
@@ -25,7 +25,7 @@ impl core::fmt::Display for TcpRepr {
     }
     write!(f, " win={}", self.window_len)?;
     if let Some(max_seg_size) = self.max_seg_size {
-        write!(f, " mss={}", max_seg_size)?;
+      write!(f, " mss={}", max_seg_size)?;
     }
     Ok(())
   }

@@ -12,18 +12,18 @@ use crate::time::*;
 
 
 /// A thread-safe heartbeat manager
-/// 
+///
 /// It has two main task:
 /// First, it sends heartbeat messages to remote process at fixed intervals
 /// Second, it checks for timeouts, also at fixed intervals.
-/// 
+///
 /// These tasks are scheduled using a time-based priority queue.
-/// 
+///
 /// For efficiency, if a process has multiple sessions to a remote process, only one
 /// instance of the remote URI is tracked
-/// 
-/// This heartbeat manger is designed to keep the CPU use of eRPC's management thread close to zero 
-/// in the steady state. An earlier version of eRPC's timeout detection 
+///
+/// This heartbeat manger is designed to keep the CPU use of eRPC's management thread close to zero
+/// in the steady state. An earlier version of eRPC's timeout detection
 /// used a reliable UDP library called Enet, which had non-negligible CPU use.
 pub struct HeartbeatMgr {
     hostname:IpAddress,
@@ -33,22 +33,22 @@ pub struct HeartbeatMgr {
     creation_tsc:u64,
     /// Machine failure timeout in TSC cycles
     failure_timeout_tsc:u64,
-    /// Send heartbeats every hb_send_delta_tsc cycles, this 
+    /// Send heartbeats every hb_send_delta_tsc cycles, this
     /// duration is around a tenth of the failure timeout
     hb_send_delta_tsc:u64,
-    /// Check heartbeats every hb_check_delta_tsc cycles. This 
-    /// duration is around half of the failure timeout 
+    /// Check heartbeats every hb_check_delta_tsc cycles. This
+    /// duration is around half of the failure timeout
     hb_check_delta_tsc:u64,
-    
+
     hb_event_pqueue:BinaryHeap<Event>,
 
     /// This map servers two purposed:
-    /// 
-    /// 1. Its value for a remote URI is the timestamp when we last receive a heartbeat from 
+    ///
+    /// 1. Its value for a remote URI is the timestamp when we last receive a heartbeat from
     /// the remote URI
-    /// 
-    /// 2. The set of remote URIs in the map is our remote tracking set. Since we 
-    /// cannot delete efficiently from the event priority queue, events for remote URIs not 
+    ///
+    /// 2. The set of remote URIs in the map is our remote tracking set. Since we
+    /// cannot delete efficiently from the event priority queue, events for remote URIs not
     /// in this map are ignored when they are dequeued.
     map_last_hb_rx:HashMap<String,u64>,
     //hb_udp_client:UDPClient<SmPkt>,
@@ -82,7 +82,7 @@ impl core::cmp::PartialEq for Event {
 }
 
 impl core::cmp::Eq for Event {
-    
+
 }
 
 impl core::cmp::PartialOrd for Event {
@@ -112,17 +112,17 @@ impl core::cmp::Ord for Event{
 impl HeartbeatMgr {
     pub(crate) fn new(hostname:IpAddress,sm_upd_port:u16,freq_ghz:f64,machine_failure_timeout_ms:u64)->Self{
         let failure_timeout_tsc=ms_to_cycles(machine_failure_timeout_ms as f64, freq_ghz);
-        Self { 
-            hostname: hostname, 
-            sm_udp_port: sm_upd_port, 
-            freq_ghz: freq_ghz, 
-            creation_tsc: rdtsc(), 
-            failure_timeout_tsc:failure_timeout_tsc, 
-            hb_send_delta_tsc: failure_timeout_tsc/10, 
-            hb_check_delta_tsc: failure_timeout_tsc/2, 
-            hb_event_pqueue: BinaryHeap::new(), 
-            map_last_hb_rx: HashMap::new(), 
-            //hb_udp_client: UDPClient::new(), 
+        Self {
+            hostname: hostname,
+            sm_udp_port: sm_upd_port,
+            freq_ghz: freq_ghz,
+            creation_tsc: rdtsc(),
+            failure_timeout_tsc:failure_timeout_tsc,
+            hb_send_delta_tsc: failure_timeout_tsc/10,
+            hb_check_delta_tsc: failure_timeout_tsc/2,
+            hb_event_pqueue: BinaryHeap::new(),
+            map_last_hb_rx: HashMap::new(),
+            //hb_udp_client: UDPClient::new(),
         }
     }
     /// add a remote URI to the tracking set

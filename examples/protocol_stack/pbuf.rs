@@ -1,66 +1,91 @@
 mod common;
 
-use std::{sync::{Arc, atomic::{AtomicBool, AtomicI64}}, time::Duration, io::Write};
+use std::{
+  io::Write,
+  sync::{
+    atomic::{AtomicBool, AtomicI64},
+    Arc,
+  },
+  time::Duration,
+};
 
 use clap::Parser;
 
-use common::{stack::{RouterInfo, tcp::{TcpRepr, TcpControl, TcpSeqNumber}}, Producer};
+use common::{
+  stack::{
+    tcp::{TcpControl, TcpRepr, TcpSeqNumber},
+    RouterInfo,
+  },
+  Producer,
+};
 use run_dpdk::Pbuf;
-use run_packet::{tcp::{TcpPacket, TcpOption}, ipv4::{Ipv4Packet, IpProtocol, IPV4_HEADER_TEMPLATE, IPV4_HEADER_LEN, Ipv4Addr}, ether::{EtherPacket, MacAddr, EtherType, ETHER_HEADER_TEMPLATE, ETHER_HEADER_LEN},Buf};
-
+use run_packet::{
+  ether::{
+    EtherPacket, EtherType, MacAddr, ETHER_HEADER_LEN, ETHER_HEADER_TEMPLATE,
+  },
+  ipv4::{
+    IpProtocol, Ipv4Addr, Ipv4Packet, IPV4_HEADER_LEN, IPV4_HEADER_TEMPLATE,
+  },
+  tcp::{TcpOption, TcpPacket},
+  Buf,
+};
 
 #[derive(Parser)]
 struct Flags {
   #[clap(short, long, default_value_t = 10)]
-  pub period:u32,
+  pub period: u32,
   #[clap(short, long)]
-  pub client:bool,
-  #[clap(short,long="buf-size")]
-  pub buffer:u32,
-  #[clap(long="mtu",default_value_t = 1518)]
-  pub mtu:usize,
+  pub client: bool,
+  #[clap(short, long = "buf-size")]
+  pub buffer: u32,
+  #[clap(long = "mtu", default_value_t = 1518)]
+  pub mtu: usize,
 }
 
 struct Sender {
-  pub sent_bytes:Arc<AtomicI64>,
-  pub data:Vec<u8>,
+  pub sent_bytes: Arc<AtomicI64>,
+  pub data: Vec<u8>,
 }
 
 impl Sender {
-  pub fn new(size:usize) -> Self {
+  pub fn new(size: usize) -> Self {
     Sender {
       sent_bytes: Arc::new(AtomicI64::new(0)),
-      data: vec![0;size],
+      data: vec![0; size],
     }
   }
 }
 
 impl common::Producer for Sender {
-  fn produce(&mut self,size:usize) -> Option<&[u8]> {
-    self.sent_bytes.fetch_add((size) as i64, std::sync::atomic::Ordering::Relaxed);
+  fn produce(&mut self, size: usize) -> Option<&[u8]> {
+    self
+      .sent_bytes
+      .fetch_add((size) as i64, std::sync::atomic::Ordering::Relaxed);
     return Some(&self.data[..size]);
   }
 }
 
-
 struct Receiver {
-  pub recv_bytes:Arc<AtomicI64>,
+  pub recv_bytes: Arc<AtomicI64>,
   pub buffer: Vec<u8>,
 }
 
 impl Receiver {
-  pub fn new(size:usize) -> Self {
-    Receiver { 
-      recv_bytes: Arc::new(AtomicI64::new(0)), 
-      buffer: vec![0;size] }
+  pub fn new(size: usize) -> Self {
+    Receiver {
+      recv_bytes: Arc::new(AtomicI64::new(0)),
+      buffer: vec![0; size],
+    }
   }
 }
 
 impl common::Consumer for Receiver {
-  fn consume(&mut self,size:usize) -> &mut [u8] {
+  fn consume(&mut self, size: usize) -> &mut [u8] {
     assert!(self.buffer.len() > size);
     //log::log!(log::Level::Trace,"Receiver: consume {} bytes",size);
-    self.recv_bytes.fetch_add(size as i64, std::sync::atomic::Ordering::Relaxed);
+    self
+      .recv_bytes
+      .fetch_add(size as i64, std::sync::atomic::Ordering::Relaxed);
     return &mut self.buffer[..size];
   }
 }
@@ -74,19 +99,20 @@ impl SendNothing {
 }
 
 impl Producer for SendNothing {
-  fn produce(&mut self,_:usize) -> Option<&[u8]> {
-      return Some(&[])
+  fn produce(&mut self, _: usize) -> Option<&[u8]> {
+    return Some(&[]);
   }
 }
 
-pub struct RunTcpPacketProcesser {
-  
-}
+pub struct RunTcpPacketProcesser {}
 
-impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
-  fn build(&mut self,mbuf:&mut run_dpdk::Mbuf,
-          repr:&common::stack::tcp::TcpRepr,
-          router_info:&common::stack::RouterInfo) {
+impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser {
+  fn build(
+    &mut self,
+    mbuf: &mut run_dpdk::Mbuf,
+    repr: &common::stack::tcp::TcpRepr,
+    router_info: &common::stack::RouterInfo,
+  ) {
     let mut tcpheader = run_packet::tcp::TCP_HEADER_TEMPLATE;
     let mut header_len = run_packet::tcp::TCP_HEADER_LEN;
     if repr.max_seg_size.is_some() {
@@ -98,11 +124,12 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     if repr.sack_permitted {
       header_len += 2;
     }
-    let sack_range_len:usize = repr.sack_ranges
-                             .iter()
-                             .map(|o| o.map(|_| 8).unwrap_or(0))
-                             .sum();
-    if sack_range_len >0 {
+    let sack_range_len: usize = repr
+      .sack_ranges
+      .iter()
+      .map(|o| o.map(|_| 8).unwrap_or(0))
+      .sum();
+    if sack_range_len > 0 {
       header_len += sack_range_len + 2;
     }
     if header_len % 4 != 0 {
@@ -143,8 +170,9 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       if repr.sack_permitted {
         let tmp = options;
         options = TcpOption::SackPermitted.build(tmp);
-      } else if repr.ack_number.is_some() 
-        && repr.sack_ranges.iter().any(|s| s.is_some()) {
+      } else if repr.ack_number.is_some()
+        && repr.sack_ranges.iter().any(|s| s.is_some())
+      {
         let tmp = options;
         options = TcpOption::SackRange(repr.sack_ranges).build(tmp);
       }
@@ -154,28 +182,34 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       }
     }
     tcppkt.adjust_ipv4_checksum(router_info.src_ipv4, router_info.dest_ipv4);
-    
-    let mut ippkt = Ipv4Packet::prepend_header(tcppkt.release(), &IPV4_HEADER_TEMPLATE);
+
+    let mut ippkt =
+      Ipv4Packet::prepend_header(tcppkt.release(), &IPV4_HEADER_TEMPLATE);
     ippkt.set_time_to_live(64);
     ippkt.set_protocol(IpProtocol::TCP);
     ippkt.set_dest_ip(router_info.dest_ipv4);
     ippkt.set_source_ip(router_info.src_ipv4);
     ippkt.set_ident(0x5c65);
     ippkt.adjust_checksum();
-    
-    let mut ethpkt = EtherPacket::prepend_header(ippkt.release(), &ETHER_HEADER_TEMPLATE);
+
+    let mut ethpkt =
+      EtherPacket::prepend_header(ippkt.release(), &ETHER_HEADER_TEMPLATE);
     ethpkt.set_dest_mac(router_info.dest_mac);
     ethpkt.set_source_mac(router_info.src_mac);
     ethpkt.set_ethertype(EtherType::IPV4);
-
   }
 
-  fn parse(&mut self,mbuf:&mut run_dpdk::Mbuf) 
-          -> Option<(common::stack::tcp::TcpRepr,
-                     common::stack::RouterInfo,usize)> {
-    let mut route_info:RouterInfo = RouterInfo::default();
-    let mut tcprepr:TcpRepr = TcpRepr::default();
-    
+  fn parse(
+    &mut self,
+    mbuf: &mut run_dpdk::Mbuf,
+  ) -> Option<(
+    common::stack::tcp::TcpRepr,
+    common::stack::RouterInfo,
+    usize,
+  )> {
+    let mut route_info: RouterInfo = RouterInfo::default();
+    let mut tcprepr: TcpRepr = TcpRepr::default();
+
     let pbuf = Pbuf::new(mbuf);
     let ethpkt = EtherPacket::parse(pbuf).ok()?;
     route_info.dest_mac = ethpkt.dest_mac();
@@ -192,19 +226,19 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     }
     route_info.dest_port = tcppkt.dst_port();
     route_info.src_port = tcppkt.src_port();
-    let payload_offset = ETHER_HEADER_LEN + IPV4_HEADER_LEN + tcppkt.header_len() as usize;
-    tcprepr.ctrl = match (tcppkt.syn(), tcppkt.fin(), tcppkt.rst(), tcppkt.psh()) {
-      (false, false, false, false) => TcpControl::None,
-      (false, false, false, true) => TcpControl::Psh,
-      (true, false, false, _) => TcpControl::Syn,
-      (false, true, false, _) => TcpControl::Fin,
-      (false, false, true, _) => TcpControl::Rst,
-      _ => return None,
-    };
+    let payload_offset =
+      ETHER_HEADER_LEN + IPV4_HEADER_LEN + tcppkt.header_len() as usize;
+    tcprepr.ctrl =
+      match (tcppkt.syn(), tcppkt.fin(), tcppkt.rst(), tcppkt.psh()) {
+        (false, false, false, false) => TcpControl::None,
+        (false, false, false, true) => TcpControl::Psh,
+        (true, false, false, _) => TcpControl::Syn,
+        (false, true, false, _) => TcpControl::Fin,
+        (false, false, true, _) => TcpControl::Rst,
+        _ => return None,
+      };
     tcprepr.ack_number = match tcppkt.ack() {
-      true => {
-        Some(TcpSeqNumber(tcppkt.ack_number() as i32))
-      }
+      true => Some(TcpSeqNumber(tcppkt.ack_number() as i32)),
       false => None,
     };
     tcprepr.seq_number = TcpSeqNumber(tcppkt.seq_number() as i32);
@@ -212,7 +246,7 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
     tcprepr.max_seg_size = None;
     tcprepr.window_scale = None;
     tcprepr.sack_permitted = false;
-    tcprepr.sack_ranges = [None,None,None];
+    tcprepr.sack_ranges = [None, None, None];
 
     let mut options = tcppkt.option_bytes();
     while !options.is_empty() {
@@ -222,11 +256,8 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
         TcpOption::NoOperation => (),
         TcpOption::MaxSegmentSize(value) => tcprepr.max_seg_size = Some(value),
         TcpOption::WindowScale(value) => {
-          tcprepr.window_scale = if value > 14 {
-                Some(14)
-            } else {
-                Some(value)
-            };
+          tcprepr.window_scale =
+            if value > 14 { Some(14) } else { Some(value) };
         }
         TcpOption::SackPermitted => tcprepr.sack_permitted = true,
         TcpOption::SackRange(slice) => tcprepr.sack_ranges = slice,
@@ -234,11 +265,11 @@ impl common::stack::tcp::PacketProcesser for RunTcpPacketProcesser{
       }
       options = next_options;
     }
-    Some((tcprepr,route_info,payload_offset))
+    Some((tcprepr, route_info, payload_offset))
   }
 }
 
-fn server_start(args:&Flags) {
+fn server_start(args: &Flags) {
   let sender = SendNothing::new();
   let recver = Receiver::new(args.buffer as usize);
   let run = Arc::new(AtomicBool::new(true));
@@ -251,7 +282,7 @@ fn server_start(args:&Flags) {
   .unwrap();
 
   let jh = std::thread::spawn(move || {
-    let mut max_secs = 1000; 
+    let mut max_secs = 1000;
     while run_clone.load(std::sync::atomic::Ordering::Relaxed) {
       if max_secs == 0 {
         break;
@@ -262,27 +293,28 @@ fn server_start(args:&Flags) {
     run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
   });
 
-
-  let processer = RunTcpPacketProcesser{};
+  let processer = RunTcpPacketProcesser {};
   let mut stack = common::stack::tcp::TcpStack::new(
-    sender, recver, 
-    processer, 
-    args.buffer as usize, 
-    64);
-  
+    sender,
+    recver,
+    processer,
+    args.buffer as usize,
+    64,
+  );
+
   stack.set_mss(mtu - ETHER_HEADER_LEN - IPV4_HEADER_LEN - 60);
   stack.bind(SERVER_LOCAL_IPV4, SERVER_PORT, SERVER_LOCAL_MAC);
   stack.listen(SERVER_REMOTE_IPV4, CLIENT_PORT, SERVER_REMOTE_MAC);
-  common::poll(run,0, &mut stack,common::OFFLOAD::NONE);
+  common::poll(run, 0, &mut stack, common::OFFLOAD::NONE);
   jh.join().unwrap();
 }
 
-fn client_start(args:&Flags) {
+fn client_start(args: &Flags) {
   let sender = Sender::new(args.buffer as usize);
   let recver = Receiver::new(64);
 
   let sent_bytes = sender.sent_bytes.clone();
-  
+
   let run = Arc::new(AtomicBool::new(true));
   let run_clone = run.clone();
   let run_ctrlc = run.clone();
@@ -300,18 +332,22 @@ fn client_start(args:&Flags) {
     let mut file = match opt.open("./data/tcp.csv") {
       Ok(f) => f,
       Err(err) => {
-        log::log!(log::Level::Error,"can not open `./data/tcp.csv`. \
-                please launch at top workspace. : {}",err);
+        log::log!(
+          log::Level::Error,
+          "can not open `./data/tcp.csv`. \
+                please launch at top workspace. : {}",
+          err
+        );
         run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
         return;
       }
     };
     match file.write_all(b"frameworkd,mtu,throughput\n") {
       Err(err) => {
-        log::log!(log::Level::Error,"failed to write : {}",err);
+        log::log!(log::Level::Error, "failed to write : {}", err);
         run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
         return;
-      },
+      }
       _ => (),
     };
     // wait for connection
@@ -328,13 +364,13 @@ fn client_start(args:&Flags) {
       let sent_diff = sent_total - last_sent_bytes;
       last_sent_bytes = sent_total;
 
-      assert!(sent_diff >= 0 );
+      assert!(sent_diff >= 0);
 
       let tx_bps = (sent_diff as f64) * 8.0 / 1000000000.0;
-      match file.write_all(format!("Pbuf,{},{}\n",mtu,tx_bps).as_bytes()) {
+      match file.write_all(format!("Pbuf,{},{}\n", mtu, tx_bps).as_bytes()) {
         Ok(_) => (),
         Err(err) => {
-          log::log!(log::Level::Error,"failed to write : {}",err);
+          log::log!(log::Level::Error, "failed to write : {}", err);
           break;
         }
       }
@@ -342,33 +378,37 @@ fn client_start(args:&Flags) {
     }
     run_clone.store(false, std::sync::atomic::Ordering::Relaxed);
   });
-  
-  let processer = RunTcpPacketProcesser{};
+
+  let processer = RunTcpPacketProcesser {};
   let mut stack = common::stack::tcp::TcpStack::new(
-    sender, recver, 
-    processer, 
-    64, 
-    args.buffer as usize);
-  
+    sender,
+    recver,
+    processer,
+    64,
+    args.buffer as usize,
+  );
+
   stack.set_mss(mtu - ETHER_HEADER_LEN - IPV4_HEADER_LEN - 60);
   stack.bind(CLINET_LOCAL_IPV4, CLIENT_PORT, CLIENT_LOCAL_MAC);
   stack.connect(CLIENT_REMOTE_IPV4, SERVER_PORT, CLIENT_REMOTE_MAC);
-  common::poll(run,3, &mut stack,common::OFFLOAD::NONE);
+  common::poll(run, 3, &mut stack, common::OFFLOAD::NONE);
 
   jh.join().unwrap();
 }
 
-const CLIENT_PORT:u16 = 9000;
-const CLINET_LOCAL_IPV4:Ipv4Addr = Ipv4Addr([192,168,22,2]);
-const CLIENT_REMOTE_IPV4:Ipv4Addr = Ipv4Addr([192,168,23,2]);
-const CLIENT_LOCAL_MAC:MacAddr = MacAddr([0x10, 0x70, 0xfd, 0x15, 0x77, 0xbf]);
-const CLIENT_REMOTE_MAC:MacAddr = MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]);
+const CLIENT_PORT: u16 = 9000;
+const CLINET_LOCAL_IPV4: Ipv4Addr = Ipv4Addr([192, 168, 22, 2]);
+const CLIENT_REMOTE_IPV4: Ipv4Addr = Ipv4Addr([192, 168, 23, 2]);
+const CLIENT_LOCAL_MAC: MacAddr = MacAddr([0x10, 0x70, 0xfd, 0x15, 0x77, 0xbf]);
+const CLIENT_REMOTE_MAC: MacAddr =
+  MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]);
 
-const SERVER_PORT:u16 = 9000;
-const SERVER_LOCAL_IPV4:Ipv4Addr = Ipv4Addr([192,168,23,2]);
-const SERVER_REMOTE_IPV4:Ipv4Addr = Ipv4Addr([192,168,22,2]);
-const SERVER_LOCAL_MAC:MacAddr = MacAddr([0x10, 0x70, 0xfd, 0x15, 0x77, 0xc1]);
-const SERVER_REMOTE_MAC:MacAddr = MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]);
+const SERVER_PORT: u16 = 9000;
+const SERVER_LOCAL_IPV4: Ipv4Addr = Ipv4Addr([192, 168, 23, 2]);
+const SERVER_REMOTE_IPV4: Ipv4Addr = Ipv4Addr([192, 168, 22, 2]);
+const SERVER_LOCAL_MAC: MacAddr = MacAddr([0x10, 0x70, 0xfd, 0x15, 0x77, 0xc1]);
+const SERVER_REMOTE_MAC: MacAddr =
+  MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]);
 
 fn main() {
   env_logger::init();

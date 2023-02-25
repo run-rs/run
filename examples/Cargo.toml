@@ -130,9 +130,5 @@ name = "rpc_server"
 path = "rpc/server.rs"
 
 [[example]]
-name = "simple_rpc_client"
-path = "simple_rpc/client.rs"
-
-[[example]]
-name = "simple_rpc_server"
-path = "simple_rpc/server.rs"
+name = "run_traffic_gen"
+path = "traffic/run_traffic_gen.rs"

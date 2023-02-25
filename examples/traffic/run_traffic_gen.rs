@@ -1,6 +1,9 @@
+use std::io::Write;
 use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
+use std::time::Duration;
 
 use arrayvec::ArrayVec;
+use clap::Parser;
 use ctrlc;
 use run_dpdk::*;
 use run_packet::ether::*;
@@ -10,6 +13,14 @@ use run_packet::Buf;
 use run_packet::CursorMut;
 
 const BATCHSIZE: usize = 64;
+
+#[derive(Debug, Parser)]
+pub struct Flags {
+  #[clap(long = "size")]
+  pub packet_size: usize,
+  #[clap(long = "core")]
+  pub core: u32,
+}
 
 fn init_port(
   port_id: u16,
@@ -57,14 +68,15 @@ fn init_port(
 }
 
 fn main() {
+  let args = Flags::parse();
   DpdkOption::new().init().unwrap();
 
   // ethernet frame size: 64 - 1514, where 4 bytes are check sum
   let total_header_len = ETHER_HEADER_LEN + IPV4_HEADER_LEN + UDP_HEADER_LEN; // 42
-  let payload_len = 18; // min size: 60-4-total_header_len, max_size: 1514-4-total_header_len
+  let payload_len = args.packet_size - total_header_len; // min size: 60-4-total_header_len, max_size: 1514-4-total_header_len
 
   let p0_id = 0;
-  let p0_nb_qs = 14;
+  let p0_nb_qs = args.core;
   let p0_start_core = 1;
   let mut p0_mpconf = MempoolConf::default();
   p0_mpconf.nb_mbufs = 8192 * 10;
@@ -83,28 +95,6 @@ fn main() {
     &mut p0_mpconf,
     &mut p0_rxq_conf,
     &mut p0_txq_conf,
-  );
-
-  let p1_id = 1;
-  let p1_nb_qs = 4;
-  let p1_start_core = p0_start_core + p0_nb_qs;
-  let mut p1_mpconf = MempoolConf::default();
-  p1_mpconf.nb_mbufs = 8192 * 10;
-  p1_mpconf.per_core_caches = 256;
-  p1_mpconf.dataroom = MempoolConf::DATAROOM;
-  let mut p1_rxq_conf = RxQueueConf::default();
-  p1_rxq_conf.nb_rx_desc = 1024;
-  let mut p1_txq_conf = TxQueueConf::default();
-  p1_txq_conf.nb_tx_desc = 1024;
-
-  init_port(
-    p1_id,
-    p1_nb_qs,
-    p1_start_core,
-    "p1_mp",
-    &mut p1_mpconf,
-    &mut p1_rxq_conf,
-    &mut p1_txq_conf,
   );
 
   let run = Arc::new(AtomicBool::new(true));
@@ -126,6 +116,24 @@ fn main() {
       let mp = service().mempool("p0_mp").unwrap();
 
       let mut batch = ArrayVec::<_, BATCHSIZE>::new();
+
+      let mut udp_hdr = UDP_HEADER_TEMPLATE;
+      udp_hdr.set_source_port(60376);
+      udp_hdr.set_dest_port(161);
+
+      let mut ipv4_hdr = IPV4_HEADER_TEMPLATE;
+      ipv4_hdr.set_ident(0x5c65);
+      ipv4_hdr.clear_flags();
+      ipv4_hdr.set_time_to_live(128);
+      ipv4_hdr.set_source_ip(Ipv4Addr([192, 168, 29, 58]));
+      ipv4_hdr.set_dest_ip(Ipv4Addr([192, 168, 12, 2]));
+      ipv4_hdr.set_protocol(IpProtocol::UDP);
+
+      let mut eth_hdr = ETHER_HEADER_TEMPLATE;
+      eth_hdr.set_dest_mac(MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]));
+      eth_hdr.set_source_mac(MacAddr([0x00, 0x50, 0x56, 0xae, 0x76, 0xf5]));
+      eth_hdr.set_ethertype(EtherType::IPV4);
+
       while run.load(Ordering::Acquire) {
         mp.fill_batch(&mut batch);
         for mbuf in batch.iter_mut() {
@@ -134,26 +142,11 @@ fn main() {
           let mut pkt = CursorMut::new(mbuf.data_mut());
           pkt.advance(total_header_len);
 
-          let mut udppkt = UdpPacket::prepend_header(pkt, &UDP_HEADER_TEMPLATE);
-          udppkt.set_source_port(60376);
-          udppkt.set_dest_port(161);
+          let udppkt = UdpPacket::prepend_header(pkt, &udp_hdr);
 
-          let mut ippkt =
-            Ipv4Packet::prepend_header(udppkt.release(), &IPV4_HEADER_TEMPLATE);
-          ippkt.set_ident(0x5c65);
-          ippkt.clear_flags();
-          ippkt.set_time_to_live(128);
-          ippkt.set_source_ip(Ipv4Addr([192, 168, 29, 58]));
-          ippkt.set_dest_ip(Ipv4Addr([192, 168, 12, 2]));
-          ippkt.set_protocol(IpProtocol::UDP);
+          let ippkt = Ipv4Packet::prepend_header(udppkt.release(), &ipv4_hdr);
 
-          let mut ethpkt = EtherPacket::prepend_header(
-            ippkt.release(),
-            &ETHER_HEADER_TEMPLATE,
-          );
-          ethpkt.set_dest_mac(MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]));
-          ethpkt.set_source_mac(MacAddr([0x00, 0x50, 0x56, 0xae, 0x76, 0xf5]));
-          ethpkt.set_ethertype(EtherType::IPV4);
+          let _ = EtherPacket::prepend_header(ippkt.release(), &eth_hdr);
         }
 
         while batch.len() > 0 {
@@ -164,44 +157,49 @@ fn main() {
     jhs.push(jh);
   }
 
-  // launch p1 threads
-  for qid in 0..p1_nb_qs {
-    let run = run.clone();
-    let jh = std::thread::spawn(move || {
-      service().lcore_bind(p1_start_core + qid).unwrap();
-
-      let mut rxq = service().rx_queue(p1_id, qid as u16).unwrap();
-
-      let mut batch = ArrayVec::<_, BATCHSIZE>::new();
-      while run.load(Ordering::Acquire) {
-        rxq.rx(&mut batch);
-        batch.drain(..);
-      }
-    });
-    jhs.push(jh);
-  }
-
   let mut p0_old_stats = service().port_stats(p0_id).unwrap();
-  let mut p1_old_stats = service().port_stats(p1_id).unwrap();
+
+  let mut opt = std::fs::File::options();
+  opt.append(true);
+  opt.write(true);
+  opt.create(true);
+
+  let mut file = opt.open("./data/traffic_gen.csv").unwrap();
+
+  file
+    .write(
+      format!(
+        "generator,core number,packet size,throughput,packet per seconds\n"
+      )
+      .as_bytes(),
+    )
+    .unwrap();
+
+  let mut max_secs = 10;
   while run.load(Ordering::Acquire) {
     std::thread::sleep(std::time::Duration::from_secs(1));
-
+    if max_secs == 0 {
+      run.store(false, Ordering::Relaxed);
+      break;
+    }
+    max_secs -= 1;
     let p0_curr_stats = service().port_stats(p0_id).unwrap();
-    let p1_curr_stats = service().port_stats(p1_id).unwrap();
 
-    println!(
-      "tx: {} pps, {} Gbps; rx: {} pps, {} Gps; rx_missed: {} pps",
-      p0_curr_stats.opackets() - p0_old_stats.opackets(),
-      (p0_curr_stats.obytes() - p0_old_stats.obytes()) as f64 * 8.0
-        / 1000000000.0,
-      p1_curr_stats.ipackets() - p1_old_stats.ipackets(),
-      (p1_curr_stats.ibytes() - p1_old_stats.ibytes()) as f64 * 8.0
-        / 1000000000.0,
-      p1_curr_stats.imissed() - p1_old_stats.imissed()
-    );
+    file
+      .write(
+        format!(
+          "RUN,{},{},{},{}\n",
+          p0_nb_qs,
+          payload_len + total_header_len,
+          (p0_curr_stats.obytes() - p0_old_stats.obytes()) as f64 * 8.0
+            / 1000000000.0,
+          p0_curr_stats.opackets() - p0_old_stats.opackets(),
+        )
+        .as_bytes(),
+      )
+      .unwrap();
 
     p0_old_stats = p0_curr_stats;
-    p1_old_stats = p1_curr_stats;
   }
 
   for jh in jhs {
@@ -209,11 +207,9 @@ fn main() {
   }
 
   service().port_close(0).unwrap();
-  service().port_close(1).unwrap();
   println!("port 0/1 closed");
 
   service().mempool_free("p0_mp").unwrap();
-  service().mempool_free("p1_mp").unwrap();
   println!("mempool p0/p1 freed");
 
   service().service_close().unwrap();

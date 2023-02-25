@@ -57,7 +57,7 @@ macro_rules! enum_sim {
             $(
                 $(#[$arm_attr])*
                 pub const $enum_arm: Self = Self($num);
-            )+ 
+            )+
         }
 
         impl ::std::convert::From<$size_t> for $tname {
@@ -66,7 +66,7 @@ macro_rules! enum_sim {
                 $tname(value)
             }
         }
-        
+
         impl ::std::convert::From<$tname> for $size_t {
             #[inline]
             fn from(value: $tname) -> $size_t {
@@ -95,7 +95,7 @@ macro_rules! packet_base {
                     ($smethod_name: ident $(,$smethod_arg:ident : $smethod_arg_t:ty)*$(,)?)
                 ),*
                 $(,)?
-            ], 
+            ],
             unchecked_set_methods: [
                 $(
                     $(#[$ucsmethod_arm_attr: meta])*

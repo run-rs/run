@@ -1,4 +1,3 @@
-
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7,44 +6,44 @@ pub struct TooManyHolesError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct Contig {
-    hole_size: usize,
-    data_size: usize,
+  hole_size: usize,
+  data_size: usize,
 }
 
 impl fmt::Display for Contig {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-      if self.has_hole() {
-          write!(f, "({})", self.hole_size)?;
-      }
-      if self.has_hole() && self.has_data() {
-          write!(f, " ")?;
-      }
-      if self.has_data() {
-          write!(f, "{}", self.data_size)?;
-      }
-      Ok(())
+    if self.has_hole() {
+      write!(f, "({})", self.hole_size)?;
+    }
+    if self.has_hole() && self.has_data() {
+      write!(f, " ")?;
+    }
+    if self.has_data() {
+      write!(f, "{}", self.data_size)?;
+    }
+    Ok(())
   }
 }
 
 impl Contig {
   fn empty() -> Contig {
-    Contig{
-      hole_size:0,
-      data_size:0,
+    Contig {
+      hole_size: 0,
+      data_size: 0,
     }
   }
 
-  fn hole(size:usize) -> Contig {
-    Contig{
-      hole_size:size,
-      data_size:0,
+  fn hole(size: usize) -> Contig {
+    Contig {
+      hole_size: size,
+      data_size: 0,
     }
   }
 
-  fn hole_and_data(hole_size:usize,data_size:usize) -> Contig {
-    Contig{
+  fn hole_and_data(hole_size: usize, data_size: usize) -> Contig {
+    Contig {
       hole_size,
-      data_size
+      data_size,
     }
   }
 
@@ -64,15 +63,15 @@ impl Contig {
     self.total_size() == 0
   }
 
-  fn expand_data_by(&mut self,size: usize) {
+  fn expand_data_by(&mut self, size: usize) {
     self.data_size += size;
   }
 
-  fn shrink_hole_by(&mut self,size:usize) {
+  fn shrink_hole_by(&mut self, size: usize) {
     self.hole_size -= size;
   }
 
-  fn shrink_hole_to(&mut self,size:usize) {
+  fn shrink_hole_to(&mut self, size: usize) {
     debug_assert!(self.hole_size >= size);
     let total_size = self.total_size();
     self.hole_size = size;
@@ -85,28 +84,28 @@ const CONTIG_COUNT: usize = 32;
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Assembler {
-  contigs: Box<[Contig;CONTIG_COUNT]>
+  contigs: Box<[Contig; CONTIG_COUNT]>,
 }
 
 impl fmt::Display for Assembler {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-      write!(f, "[ ")?;
-      for contig in self.contigs.iter() {
-          if contig.is_empty() {
-              break;
-          }
-          write!(f, "{} ", contig)?;
+    write!(f, "[ ")?;
+    for contig in self.contigs.iter() {
+      if contig.is_empty() {
+        break;
       }
-      write!(f, "]")?;
-      Ok(())
+      write!(f, "{} ", contig)?;
+    }
+    write!(f, "]")?;
+    Ok(())
   }
 }
 
 impl Assembler {
-  pub fn new(size:usize) -> Assembler {
-    let mut contigs = Box::new([Contig::empty();CONTIG_COUNT]);
+  pub fn new(size: usize) -> Assembler {
+    let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
     contigs[0] = Contig::hole(size);
-    Assembler {contigs}
+    Assembler { contigs }
   }
 
   #[allow(dead_code)]
@@ -136,7 +135,7 @@ impl Assembler {
     !self.front().has_data()
   }
 
-  fn remove_contig_at(&mut self,at:usize) -> &mut Contig {
+  fn remove_contig_at(&mut self, at: usize) -> &mut Contig {
     for i in at..self.contigs.len() - 1 {
       self.contigs[i] = self.contigs[i + 1];
       if !self.contigs[i].has_data() {
@@ -149,7 +148,10 @@ impl Assembler {
     &mut self.contigs[at]
   }
 
-  fn add_contig_at(&mut self, at:usize) -> Result<&mut Contig, TooManyHolesError> {
+  fn add_contig_at(
+    &mut self,
+    at: usize,
+  ) -> Result<&mut Contig, TooManyHolesError> {
     if !self.back().is_empty() {
       return Err(TooManyHolesError);
     }
@@ -162,10 +164,14 @@ impl Assembler {
     Ok(&mut self.contigs[at])
   }
 
-  pub fn add(&mut self,mut offset: usize,mut size: usize) -> Result<bool,TooManyHolesError> {
+  pub fn add(
+    &mut self,
+    mut offset: usize,
+    mut size: usize,
+  ) -> Result<bool, TooManyHolesError> {
     let mut index = 0;
     let mut overlap = size;
-    while index != self.contigs.len() && size !=0 {
+    while index != self.contigs.len() && size != 0 {
       let contig = self.contigs[index];
 
       if offset > contig.total_size() {
@@ -175,7 +181,7 @@ impl Assembler {
         overlap -= contig.total_size();
         self.remove_contig_at(index);
         index += 0;
-      }else if offset == 0 && size < contig.hole_size && index > 0 {
+      } else if offset == 0 && size < contig.hole_size && index > 0 {
         // The range being added covers a part of the hole in this contig starting
         // at the beginning, shrink the hole in this contig and expand data in
         // the previous contig.
@@ -183,7 +189,8 @@ impl Assembler {
         self.contigs[index].shrink_hole_by(size);
         overlap -= size;
         index += 1;
-      } else if offset <= contig.hole_size && offset + size >= contig.hole_size {
+      } else if offset <= contig.hole_size && offset + size >= contig.hole_size
+      {
         // The range being added covers both a part of the hole and a part of the data
         // in this contig, shrink the hole in this contig.
         overlap -= contig.hole_size - offset;
@@ -196,9 +203,9 @@ impl Assembler {
         // The range being added covers a part of the hole but not of the data
         // in this contig, add a new contig containing the range.
         {
-            let inserted = self.add_contig_at(index)?;
-            *inserted = Contig::hole_and_data(offset, size);
-            overlap -= size;
+          let inserted = self.add_contig_at(index)?;
+          *inserted = Contig::hole_and_data(offset, size);
+          overlap -= size;
         }
         // Previous contigs[index] got moved to contigs[index+1]
         self.contigs[index + 1].shrink_hole_by(offset + size);
@@ -231,11 +238,10 @@ impl Assembler {
     }
   }
 
-  pub fn iter_data(&self,first_offset:usize) -> AssemblerIter {
+  pub fn iter_data(&self, first_offset: usize) -> AssemblerIter {
     AssemblerIter::new(self, first_offset)
   }
 }
-
 
 pub struct AssemblerIter<'a> {
   assembler: &'a Assembler,
@@ -247,13 +253,13 @@ pub struct AssemblerIter<'a> {
 
 impl<'a> AssemblerIter<'a> {
   fn new(assembler: &'a Assembler, offset: usize) -> AssemblerIter<'a> {
-      AssemblerIter {
-          assembler,
-          offset,
-          index: 0,
-          left: 0,
-          right: 0,
-      }
+    AssemblerIter {
+      assembler,
+      offset,
+      index: 0,
+      left: 0,
+      right: 0,
+    }
   }
 }
 
@@ -261,239 +267,239 @@ impl<'a> Iterator for AssemblerIter<'a> {
   type Item = (usize, usize);
 
   fn next(&mut self) -> Option<(usize, usize)> {
-      let mut data_range = None;
-      while data_range.is_none() && self.index < self.assembler.contigs.len() {
-          let contig = self.assembler.contigs[self.index];
-          self.left += contig.hole_size;
-          self.right = self.left + contig.data_size;
-          data_range = if self.left < self.right {
-              let data_range = (self.left + self.offset, self.right + self.offset);
-              self.left = self.right;
-              Some(data_range)
-          } else {
-              None
-          };
-          self.index += 1;
-      }
-      data_range
+    let mut data_range = None;
+    while data_range.is_none() && self.index < self.assembler.contigs.len() {
+      let contig = self.assembler.contigs[self.index];
+      self.left += contig.hole_size;
+      self.right = self.left + contig.data_size;
+      data_range = if self.left < self.right {
+        let data_range = (self.left + self.offset, self.right + self.offset);
+        self.left = self.right;
+        Some(data_range)
+      } else {
+        None
+      };
+      self.index += 1;
+    }
+    data_range
   }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use std::vec::Vec;
+  use super::*;
+  use std::vec::Vec;
 
-    impl From<Vec<(usize, usize)>> for Assembler {
-        fn from(vec: Vec<(usize, usize)>) -> Assembler {
-            #[cfg(not(any(feature = "std", feature = "alloc")))]
-            let mut contigs = [Contig::empty(); CONTIG_COUNT];
-            #[cfg(any(feature = "std", feature = "alloc"))]
-            let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
-            for (i, &(hole_size, data_size)) in vec.iter().enumerate() {
-                contigs[i] = Contig {
-                    hole_size,
-                    data_size,
-                };
-            }
-            Assembler { contigs }
-        }
+  impl From<Vec<(usize, usize)>> for Assembler {
+    fn from(vec: Vec<(usize, usize)>) -> Assembler {
+      #[cfg(not(any(feature = "std", feature = "alloc")))]
+      let mut contigs = [Contig::empty(); CONTIG_COUNT];
+      #[cfg(any(feature = "std", feature = "alloc"))]
+      let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
+      for (i, &(hole_size, data_size)) in vec.iter().enumerate() {
+        contigs[i] = Contig {
+          hole_size,
+          data_size,
+        };
+      }
+      Assembler { contigs }
     }
+  }
 
-    macro_rules! contigs {
+  macro_rules! contigs {
         [$( $x:expr ),*] => ({
             Assembler::from(vec![$( $x ),*])
         })
     }
 
-    #[test]
-    fn test_new() {
-        let assr = Assembler::new(16);
-        assert_eq!(assr.total_size(), 16);
-        assert_eq!(assr, contigs![(16, 0)]);
-    }
+  #[test]
+  fn test_new() {
+    let assr = Assembler::new(16);
+    assert_eq!(assr.total_size(), 16);
+    assert_eq!(assr, contigs![(16, 0)]);
+  }
 
-    #[test]
-    fn test_empty_add_full() {
-        let mut assr = Assembler::new(16);
-        assert_eq!(assr.add(0, 16), Ok(false));
-        assert_eq!(assr, contigs![(0, 16)]);
-    }
+  #[test]
+  fn test_empty_add_full() {
+    let mut assr = Assembler::new(16);
+    assert_eq!(assr.add(0, 16), Ok(false));
+    assert_eq!(assr, contigs![(0, 16)]);
+  }
 
-    #[test]
-    fn test_empty_add_front() {
-        let mut assr = Assembler::new(16);
-        assert_eq!(assr.add(0, 4), Ok(false));
-        assert_eq!(assr, contigs![(0, 4), (12, 0)]);
-    }
+  #[test]
+  fn test_empty_add_front() {
+    let mut assr = Assembler::new(16);
+    assert_eq!(assr.add(0, 4), Ok(false));
+    assert_eq!(assr, contigs![(0, 4), (12, 0)]);
+  }
 
-    #[test]
-    fn test_empty_add_back() {
-        let mut assr = Assembler::new(16);
-        assert_eq!(assr.add(12, 4), Ok(false));
-        assert_eq!(assr, contigs![(12, 4)]);
-    }
+  #[test]
+  fn test_empty_add_back() {
+    let mut assr = Assembler::new(16);
+    assert_eq!(assr.add(12, 4), Ok(false));
+    assert_eq!(assr, contigs![(12, 4)]);
+  }
 
-    #[test]
-    fn test_empty_add_mid() {
-        let mut assr = Assembler::new(16);
-        assert_eq!(assr.add(4, 8), Ok(false));
-        assert_eq!(assr, contigs![(4, 8), (4, 0)]);
-    }
+  #[test]
+  fn test_empty_add_mid() {
+    let mut assr = Assembler::new(16);
+    assert_eq!(assr.add(4, 8), Ok(false));
+    assert_eq!(assr, contigs![(4, 8), (4, 0)]);
+  }
 
-    #[test]
-    fn test_partial_add_front() {
-        let mut assr = contigs![(4, 8), (4, 0)];
-        assert_eq!(assr.add(0, 4), Ok(false));
-        assert_eq!(assr, contigs![(0, 12), (4, 0)]);
-    }
+  #[test]
+  fn test_partial_add_front() {
+    let mut assr = contigs![(4, 8), (4, 0)];
+    assert_eq!(assr.add(0, 4), Ok(false));
+    assert_eq!(assr, contigs![(0, 12), (4, 0)]);
+  }
 
-    #[test]
-    fn test_partial_add_back() {
-        let mut assr = contigs![(4, 8), (4, 0)];
-        assert_eq!(assr.add(12, 4), Ok(false));
-        assert_eq!(assr, contigs![(4, 12)]);
-    }
+  #[test]
+  fn test_partial_add_back() {
+    let mut assr = contigs![(4, 8), (4, 0)];
+    assert_eq!(assr.add(12, 4), Ok(false));
+    assert_eq!(assr, contigs![(4, 12)]);
+  }
 
-    #[test]
-    fn test_partial_add_front_overlap() {
-        let mut assr = contigs![(4, 8), (4, 0)];
-        assert_eq!(assr.add(0, 8), Ok(true));
-        assert_eq!(assr, contigs![(0, 12), (4, 0)]);
-    }
+  #[test]
+  fn test_partial_add_front_overlap() {
+    let mut assr = contigs![(4, 8), (4, 0)];
+    assert_eq!(assr.add(0, 8), Ok(true));
+    assert_eq!(assr, contigs![(0, 12), (4, 0)]);
+  }
 
-    #[test]
-    fn test_partial_add_front_overlap_split() {
-        let mut assr = contigs![(4, 8), (4, 0)];
-        assert_eq!(assr.add(2, 6), Ok(true));
-        assert_eq!(assr, contigs![(2, 10), (4, 0)]);
-    }
+  #[test]
+  fn test_partial_add_front_overlap_split() {
+    let mut assr = contigs![(4, 8), (4, 0)];
+    assert_eq!(assr.add(2, 6), Ok(true));
+    assert_eq!(assr, contigs![(2, 10), (4, 0)]);
+  }
 
-    #[test]
-    fn test_partial_add_back_overlap() {
-        let mut assr = contigs![(4, 8), (4, 0)];
-        assert_eq!(assr.add(8, 8), Ok(true));
-        assert_eq!(assr, contigs![(4, 12)]);
-    }
+  #[test]
+  fn test_partial_add_back_overlap() {
+    let mut assr = contigs![(4, 8), (4, 0)];
+    assert_eq!(assr.add(8, 8), Ok(true));
+    assert_eq!(assr, contigs![(4, 12)]);
+  }
 
-    #[test]
-    fn test_partial_add_back_overlap_split() {
-        let mut assr = contigs![(4, 8), (4, 0)];
-        assert_eq!(assr.add(10, 4), Ok(true));
-        assert_eq!(assr, contigs![(4, 10), (2, 0)]);
-    }
+  #[test]
+  fn test_partial_add_back_overlap_split() {
+    let mut assr = contigs![(4, 8), (4, 0)];
+    assert_eq!(assr.add(10, 4), Ok(true));
+    assert_eq!(assr, contigs![(4, 10), (2, 0)]);
+  }
 
-    #[test]
-    fn test_partial_add_both_overlap() {
-        let mut assr = contigs![(4, 8), (4, 0)];
-        assert_eq!(assr.add(0, 16), Ok(true));
-        assert_eq!(assr, contigs![(0, 16)]);
-    }
+  #[test]
+  fn test_partial_add_both_overlap() {
+    let mut assr = contigs![(4, 8), (4, 0)];
+    assert_eq!(assr.add(0, 16), Ok(true));
+    assert_eq!(assr, contigs![(0, 16)]);
+  }
 
-    #[test]
-    fn test_partial_add_both_overlap_split() {
-        let mut assr = contigs![(4, 8), (4, 0)];
-        assert_eq!(assr.add(2, 12), Ok(true));
-        assert_eq!(assr, contigs![(2, 12), (2, 0)]);
-    }
+  #[test]
+  fn test_partial_add_both_overlap_split() {
+    let mut assr = contigs![(4, 8), (4, 0)];
+    assert_eq!(assr.add(2, 12), Ok(true));
+    assert_eq!(assr, contigs![(2, 12), (2, 0)]);
+  }
 
-    #[test]
-    fn test_rejected_add_keeps_state() {
-        let mut assr = Assembler::new(CONTIG_COUNT * 20);
-        for c in 1..=CONTIG_COUNT - 1 {
-            assert_eq!(assr.add(c * 10, 3), Ok(false));
-        }
-        // Maximum of allowed holes is reached
-        let assr_before = assr.clone();
-        assert_eq!(assr.add(1, 3), Err(TooManyHolesError));
-        assert_eq!(assr_before, assr);
+  #[test]
+  fn test_rejected_add_keeps_state() {
+    let mut assr = Assembler::new(CONTIG_COUNT * 20);
+    for c in 1..=CONTIG_COUNT - 1 {
+      assert_eq!(assr.add(c * 10, 3), Ok(false));
     }
+    // Maximum of allowed holes is reached
+    let assr_before = assr.clone();
+    assert_eq!(assr.add(1, 3), Err(TooManyHolesError));
+    assert_eq!(assr_before, assr);
+  }
 
-    #[test]
-    fn test_empty_remove_front() {
-        let mut assr = contigs![(12, 0)];
-        assert_eq!(assr.remove_front(), None);
-    }
+  #[test]
+  fn test_empty_remove_front() {
+    let mut assr = contigs![(12, 0)];
+    assert_eq!(assr.remove_front(), None);
+  }
 
-    #[test]
-    fn test_trailing_hole_remove_front() {
-        let mut assr = contigs![(0, 4), (8, 0)];
-        assert_eq!(assr.remove_front(), Some(4));
-        assert_eq!(assr, contigs![(12, 0)]);
-    }
+  #[test]
+  fn test_trailing_hole_remove_front() {
+    let mut assr = contigs![(0, 4), (8, 0)];
+    assert_eq!(assr.remove_front(), Some(4));
+    assert_eq!(assr, contigs![(12, 0)]);
+  }
 
-    #[test]
-    fn test_trailing_data_remove_front() {
-        let mut assr = contigs![(0, 4), (4, 4)];
-        assert_eq!(assr.remove_front(), Some(4));
-        assert_eq!(assr, contigs![(4, 4), (4, 0)]);
-    }
+  #[test]
+  fn test_trailing_data_remove_front() {
+    let mut assr = contigs![(0, 4), (4, 4)];
+    assert_eq!(assr.remove_front(), Some(4));
+    assert_eq!(assr, contigs![(4, 4), (4, 0)]);
+  }
 
-    #[test]
-    fn test_iter_empty() {
-        let assr = Assembler::new(16);
-        let segments: Vec<_> = assr.iter_data(10).collect();
-        assert_eq!(segments, vec![]);
-    }
+  #[test]
+  fn test_iter_empty() {
+    let assr = Assembler::new(16);
+    let segments: Vec<_> = assr.iter_data(10).collect();
+    assert_eq!(segments, vec![]);
+  }
 
-    #[test]
-    fn test_iter_full() {
-        let mut assr = Assembler::new(16);
-        assert_eq!(assr.add(0, 16), Ok(false));
-        let segments: Vec<_> = assr.iter_data(10).collect();
-        assert_eq!(segments, vec![(10, 26)]);
-    }
+  #[test]
+  fn test_iter_full() {
+    let mut assr = Assembler::new(16);
+    assert_eq!(assr.add(0, 16), Ok(false));
+    let segments: Vec<_> = assr.iter_data(10).collect();
+    assert_eq!(segments, vec![(10, 26)]);
+  }
 
-    #[test]
-    fn test_iter_offset() {
-        let mut assr = Assembler::new(16);
-        assert_eq!(assr.add(0, 16), Ok(false));
-        let segments: Vec<_> = assr.iter_data(100).collect();
-        assert_eq!(segments, vec![(100, 116)]);
-    }
+  #[test]
+  fn test_iter_offset() {
+    let mut assr = Assembler::new(16);
+    assert_eq!(assr.add(0, 16), Ok(false));
+    let segments: Vec<_> = assr.iter_data(100).collect();
+    assert_eq!(segments, vec![(100, 116)]);
+  }
 
-    #[test]
-    fn test_iter_one_front() {
-        let mut assr = Assembler::new(16);
-        assert_eq!(assr.add(0, 4), Ok(false));
-        let segments: Vec<_> = assr.iter_data(10).collect();
-        assert_eq!(segments, vec![(10, 14)]);
-    }
+  #[test]
+  fn test_iter_one_front() {
+    let mut assr = Assembler::new(16);
+    assert_eq!(assr.add(0, 4), Ok(false));
+    let segments: Vec<_> = assr.iter_data(10).collect();
+    assert_eq!(segments, vec![(10, 14)]);
+  }
 
-    #[test]
-    fn test_iter_one_back() {
-        let mut assr = Assembler::new(16);
-        assert_eq!(assr.add(12, 4), Ok(false));
-        let segments: Vec<_> = assr.iter_data(10).collect();
-        assert_eq!(segments, vec![(22, 26)]);
-    }
+  #[test]
+  fn test_iter_one_back() {
+    let mut assr = Assembler::new(16);
+    assert_eq!(assr.add(12, 4), Ok(false));
+    let segments: Vec<_> = assr.iter_data(10).collect();
+    assert_eq!(segments, vec![(22, 26)]);
+  }
 
-    #[test]
-    fn test_iter_one_mid() {
-        let mut assr = Assembler::new(16);
-        assert_eq!(assr.add(4, 8), Ok(false));
-        let segments: Vec<_> = assr.iter_data(10).collect();
-        assert_eq!(segments, vec![(14, 22)]);
-    }
+  #[test]
+  fn test_iter_one_mid() {
+    let mut assr = Assembler::new(16);
+    assert_eq!(assr.add(4, 8), Ok(false));
+    let segments: Vec<_> = assr.iter_data(10).collect();
+    assert_eq!(segments, vec![(14, 22)]);
+  }
 
-    #[test]
-    fn test_iter_one_trailing_gap() {
-        let assr = contigs![(4, 8), (4, 0)];
-        let segments: Vec<_> = assr.iter_data(100).collect();
-        assert_eq!(segments, vec![(104, 112)]);
-    }
+  #[test]
+  fn test_iter_one_trailing_gap() {
+    let assr = contigs![(4, 8), (4, 0)];
+    let segments: Vec<_> = assr.iter_data(100).collect();
+    assert_eq!(segments, vec![(104, 112)]);
+  }
 
-    #[test]
-    fn test_iter_two_split() {
-        let assr = contigs![(2, 6), (4, 1), (1, 0)];
-        let segments: Vec<_> = assr.iter_data(100).collect();
-        assert_eq!(segments, vec![(102, 108), (112, 113)]);
-    }
+  #[test]
+  fn test_iter_two_split() {
+    let assr = contigs![(2, 6), (4, 1), (1, 0)];
+    let segments: Vec<_> = assr.iter_data(100).collect();
+    assert_eq!(segments, vec![(102, 108), (112, 113)]);
+  }
 
-    #[test]
-    fn test_iter_three_split() {
-        let assr = contigs![(2, 6), (2, 1), (2, 2), (1, 0)];
-        let segments: Vec<_> = assr.iter_data(100).collect();
-        assert_eq!(segments, vec![(102, 108), (110, 111), (113, 115)]);
-    }
+  #[test]
+  fn test_iter_three_split() {
+    let assr = contigs![(2, 6), (2, 1), (2, 2), (1, 0)];
+    let segments: Vec<_> = assr.iter_data(100).collect();
+    assert_eq!(segments, vec![(102, 108), (110, 111), (113, 115)]);
+  }
 }
