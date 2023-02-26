@@ -148,6 +148,12 @@ impl<T: AsRef<[u8]>> TcpHeader<T> {
     let raw = NetworkEndian::read_u16(data);
     raw & FLG_CWR != 0
   }
+  
+  #[inline]
+  pub fn flags(&self) -> u16 {
+    let data = flags(self.buf.as_ref());
+    NetworkEndian::read_u16(data)
+  }
 
   #[inline]
   pub fn ns(&self) -> bool {
@@ -201,6 +207,12 @@ impl<T: AsMut<[u8]>> TcpHeader<T> {
   pub fn set_dst_port(&mut self, value: u16) {
     let data = dst_port_mut(self.buf.as_mut());
     NetworkEndian::write_u16(data, value)
+  }
+  
+  #[inline]
+  pub fn set_flags(&mut self,value: u16) {
+    let data = flags_mut(self.buf.as_mut());
+    NetworkEndian::write_u16(data,value);
   }
 
   #[inline]
