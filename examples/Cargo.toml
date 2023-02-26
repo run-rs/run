@@ -12,6 +12,17 @@ ctrlc = { version = "3.0", features = ["termination"]}
 run-time = {path = "../run-time", package = "run-time"}
 run-dpdk = {path = "../run-dpdk", package = "run-dpdk"}
 run-packet = {path = "../run-packet", package = "run-packet"}
+log = { version = "0.4.4"}
+byteorder = "1"
+bytes = "1"
+clap = {version="3.1.6", features=["derive"]}
+mockalloc = "0.1.2"
+env_logger = "0.9"
+pnet = "0.31.0"
+rand = "0.8.5"
+libnuma-sys = "0.0.4"
+nix = "0.23.1"
+libc = "0.2.126"
 
 
 [[example]]
@@ -61,3 +72,63 @@ path = "dpdk/traffic_fwd.rs"
 [[example]]
 name = "smol_traffic_fwd"
 path = "dpdk/smol_traffic_fwd.rs"
+
+[[example]]
+name = "tx_tcp"
+path = "dpdk/tx_tcp.rs"
+
+[[example]]
+name = "lro_test"
+path = "dpdk/lro_test.rs"
+
+[[example]]
+name = "jumbo_test"
+path = "dpdk/jumbo_test.rs"
+
+[[example]]
+name = "pbuf"
+path = "protocol_stack/pbuf.rs"
+
+[[example]]
+name = "pnet"
+path = "protocol_stack/pnet.rs"
+
+[[example]]
+name = "smol"
+path = "protocol_stack/smol.rs"
+
+[[example]]
+name = "cursor"
+path = "protocol_stack/cursor.rs"
+
+[[example]]
+name = "run_tso"
+path = "protocol_stack/run_tso.rs"
+
+[[example]]
+name = "pnet_csum_offload"
+path = "protocol_stack/pnet_csum_offload.rs"
+
+[[example]]
+name = "smol_csum_offload"
+path = "protocol_stack/smol_csum_offload.rs"
+
+[[example]]
+name = "cursor_csum_offload"
+path = "protocol_stack/cursor_csum_offload.rs"
+
+[[example]]
+name = "pbuf_csum_offload"
+path = "protocol_stack/pbuf_csum_offload.rs"
+
+[[example]]
+name = "rpc_client"
+path = "rpc/client.rs"
+
+[[example]]
+name = "rpc_server"
+path = "rpc/server.rs"
+
+[[example]]
+name = "run_traffic_gen"
+path = "traffic/run_traffic_gen.rs"

@@ -18,16 +18,28 @@
 /// Some of the code is taken from minstant library, but remove some unncessary
 /// code path for performance.
 
-#[cfg(all(target_os = "linux", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+  target_os = "linux",
+  any(target_arch = "x86", target_arch = "x86_64")
+))]
 mod instant;
 
-#[cfg(all(target_os = "linux", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+  target_os = "linux",
+  any(target_arch = "x86", target_arch = "x86_64")
+))]
 pub use instant::{Anchor, Instant};
 
-#[cfg(all(target_os = "linux", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+  target_os = "linux",
+  any(target_arch = "x86", target_arch = "x86_64")
+))]
 mod tsc;
 
-#[cfg(all(target_os = "linux", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+  target_os = "linux",
+  any(target_arch = "x86", target_arch = "x86_64")
+))]
 /// Return whether tsc is stable on the current system.
 ///
 /// Note that if this method returns `false`, the whole library should not be used,
@@ -40,15 +52,18 @@ mod tsc;
 /// assert!(rdtsc_time::tsc_stable());
 /// ```
 pub fn tsc_stable() -> bool {
-    tsc::tsc_stable()
+  tsc::tsc_stable()
 }
 
-#[cfg(all(target_os = "linux", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+  target_os = "linux",
+  any(target_arch = "x86", target_arch = "x86_64")
+))]
 /// Return the number of CPU cycles of 1 second. It can be used to caclculate future tsc
 /// counter value after a fixed time interval.
-/// 
+///
 /// Note that this method may return 0 if it is not running on systems with stable tsc.
-/// 
+///
 /// # Examples
 /// ```
 /// use rdtsc_time::Instant;
@@ -60,5 +75,5 @@ pub fn tsc_stable() -> bool {
 /// ```
 #[inline]
 pub fn cycles_per_sec() -> u64 {
-    tsc::cycles_per_sec()
+  tsc::cycles_per_sec()
 }

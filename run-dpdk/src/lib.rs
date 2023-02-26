@@ -1,6 +1,6 @@
 fn _prevent_compilation() {
-    #[cfg(any(not(target_pointer_width = "64"), not(target_os = "linux")))]
-    compile_error!("This crate can only be used on 64-bit Linux system.");
+  #[cfg(any(not(target_pointer_width = "64"), not(target_os = "linux")))]
+  compile_error!("This crate can only be used on 64-bit Linux system.");
 }
 
 // A macro used for generating dpdk bit-level configuration.
@@ -71,6 +71,8 @@ mod pbuf;
 pub use pbuf::Pbuf;
 
 mod port;
-pub use port::{PortConf, PortInfo, PortStats, RxQueue, RxQueueConf, TxQueue, TxQueueConf};
+pub use port::{
+  PortConf, PortInfo, PortStats, RxQueue, RxQueueConf, TxQueue, TxQueueConf,
+};
 
 pub mod offload;
