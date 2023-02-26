@@ -45,13 +45,22 @@ def plot_rpc():
     global global_hatch_colors
     global global_hatches
     
-    y = [
+    y_th = [
         14.124136,
         24.78197248,
         31.147796,
         39.45007718,
         41.921397,
         48.38327603
+    ]
+
+    y_latency = [
+        4.5312,
+        2.612,
+        2.0547,
+        1.665,
+        1.526,
+        1.368
     ]
 
     x = [
@@ -63,15 +72,18 @@ def plot_rpc():
         "9000",
     ]
 
-    y_pos = np.array(y)
+    latency = np.array(y_latency)
+    throughput = np.array(y_th)
     x_pos = np.array(x)
     fig, ax = plt.subplots(constrained_layout = False)
-    ax.plot(x_pos,y_pos,color = '#CA0020', marker='s')
+    ax2 = ax.twinx()
+    ax2.plot(x_pos,latency,color = '#E6D933', marker='s')
+    ax.bar(x_pos,throughput,color = None, edgecolor = '#FFFAF0', hatch = '////')
     ax.grid(color='#939393', linestyle=':', linewidth='0.4')
     ax.set_ylim(0)
     ax.set_ylabel('ThroughPut (Gbps)')
     ax.set_xlabel("MTU (bytes)")
-    ax.legend()    
+    ax2.set_ylabel('Latency (ms)')
 
     titlefont = {
                     'fontsize': "medium",
