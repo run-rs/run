@@ -8,6 +8,7 @@ members = [
   "run-tcp",
   "run-rpc",
   "run-gen",
+  "run-retina",
   "examples",
   "benches"
 ]
