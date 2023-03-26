@@ -5,6 +5,7 @@ members = [
   "run-dpdk-sys",
   "run-dpdk",
   "run-time",
+  "run-tcp",
   "examples",
   "benches"
 ]

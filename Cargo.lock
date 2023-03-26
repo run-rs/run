@@ -943,6 +943,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "run-tcp"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "clap 3.2.23",
+ "ctrlc",
+ "env_logger",
+ "log",
+ "mockalloc",
+ "pnet",
+ "run-dpdk",
+ "run-packet",
+ "run-time",
+ "smoltcp",
+]
+
+[[package]]
 name = "run-time"
 version = "0.1.0"
 dependencies = [
