@@ -6,6 +6,7 @@ members = [
   "run-dpdk",
   "run-time",
   "run-tcp",
+  "run-rpc",
   "examples",
   "benches"
 ]
