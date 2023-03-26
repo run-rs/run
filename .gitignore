@@ -1,4 +1,10 @@
+<<<<<<< HEAD
 target/
 run-dpdk-sys/deps
 benches/target/
 install/
+=======
+Cargo.lock
+
+target/*
+>>>>>>> 2d9616d... update gitignore files
