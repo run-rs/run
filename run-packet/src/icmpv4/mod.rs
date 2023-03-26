@@ -18,3 +18,6 @@ pub use header::{Icmpv4Header, ICMPV4_HEADER_LEN, ICMPV4_HEADER_TEMPLATE};
 
 mod packet;
 pub use self::packet::Icmpv4Packet;
+
+mod packet;
+pub use self::packet::Icmpv4Packet;

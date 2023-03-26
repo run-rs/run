@@ -1,3 +1,5 @@
+target/
+run-dpdk-sys/deps
+benches/target/
+install/
 Cargo.lock
-
-target/*

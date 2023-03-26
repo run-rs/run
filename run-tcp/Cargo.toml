@@ -1,0 +1,56 @@
+[package]
+name = "run-tcp"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+run-time = {path = "../run-time", package = "run-time"}
+run-dpdk = {path = "../run-dpdk", package = "run-dpdk"}
+run-packet = {path = "../run-packet", package = "run-packet"}
+arrayvec = "0.7.2"
+smoltcp = "0.8"
+log = { version = "0.4.4"}
+mockalloc = "0.1.2"
+clap = {version="3.1.6", features=["derive"]}
+env_logger = "0.9"
+ctrlc = { version = "3.0", features = ["termination"]}
+pnet = "0.31.0"
+
+
+[[bin]]
+name = "pbuf"
+path = "bin/pbuf.rs"
+
+[[bin]]
+name = "pnet"
+path = "bin/pnet.rs"
+
+[[bin]]
+name = "smol"
+path = "bin/smol.rs"
+
+[[bin]]
+name = "cursor"
+path = "bin/cursor.rs"
+
+[[bin]]
+name = "run_tso"
+path = "bin/run_tso.rs"
+
+[[bin]]
+name = "pnet_csum_offload"
+path = "bin/pnet_csum_offload.rs"
+
+[[bin]]
+name = "smol_csum_offload"
+path = "bin/smol_csum_offload.rs"
+
+[[bin]]
+name = "cursor_csum_offload"
+path = "bin/cursor_csum_offload.rs"
+
+[[bin]]
+name = "pbuf_csum_offload"
+path = "bin/pbuf_csum_offload.rs"

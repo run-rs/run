@@ -119,7 +119,6 @@ impl<'a> Buf for CursorMut<'a> {
         };
     }
 }
-
 impl<'a> PktBuf for CursorMut<'a> {
     #[inline]
     fn move_back(&mut self, cnt: usize) {
@@ -149,7 +148,6 @@ impl<'a> PktMut for CursorMut<'a> {
         self.cursor()
     }
 }
-
 #[cfg(test)]
 mod test_cursors {
     use super::*;
@@ -225,3 +223,4 @@ mod test_cursors {
         }
     }
 }
+

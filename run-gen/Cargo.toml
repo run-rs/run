@@ -1,0 +1,14 @@
+[package]
+name = "run-gen"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+run-time = {path = "../run-time", package = "run-time"}
+run-dpdk = {path = "../run-dpdk", package = "run-dpdk"}
+run-packet = {path = "../run-packet", package = "run-packet"}
+clap = {version="3.1.6", features=["derive"]}
+arrayvec = "0.7.2"
+ctrlc = { version = "3.0", features = ["termination"]}

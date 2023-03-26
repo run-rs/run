@@ -54,34 +54,37 @@ packet_base! {
 }
 
 impl<T: Buf> EtherPacket<T> {
-    #[inline]
-    pub fn parse(buf: T) -> Result<EtherPacket<T>, T> {
-        if buf.chunk().len() >= ETHER_HEADER_LEN {
-            Ok(EtherPacket::parse_unchecked(buf))
-        } else {
-            Err(buf)
-        }
+  #[inline]
+  pub fn parse(buf: T) -> Result<EtherPacket<T>, T> {
+    if buf.chunk().len() >= ETHER_HEADER_LEN {
+      Ok(EtherPacket::parse_unchecked(buf))
+    } else {
+      Err(buf)
     }
+  }
 
-    #[inline]
-    pub fn payload(self) -> T {
-        let mut buf = self.release();
-        buf.advance(ETHER_HEADER_LEN);
-        buf
-    }
+  #[inline]
+  pub fn payload(self) -> T {
+    let mut buf = self.release();
+    buf.advance(ETHER_HEADER_LEN);
+    buf
+  }
 }
 
 impl<T: PktMut> EtherPacket<T> {
-    #[inline]
-    pub fn prepend_header<HT: AsRef<[u8]>>(mut buf: T, header: &EtherHeader<HT>) -> EtherPacket<T> {
-        assert!(buf.chunk_headroom() >= ETHER_HEADER_LEN);
-        buf.move_back(ETHER_HEADER_LEN);
+  #[inline]
+  pub fn prepend_header<HT: AsRef<[u8]>>(
+    mut buf: T,
+    header: &EtherHeader<HT>,
+  ) -> EtherPacket<T> {
+    assert!(buf.chunk_headroom() >= ETHER_HEADER_LEN);
+    buf.move_back(ETHER_HEADER_LEN);
 
-        let data = &mut buf.chunk_mut()[0..ETHER_HEADER_LEN];
-        data.copy_from_slice(header.as_bytes());
+    let data = &mut buf.chunk_mut()[0..ETHER_HEADER_LEN];
+    data.copy_from_slice(header.as_bytes());
 
-        EtherPacket { buf }
-    }
+    EtherPacket { buf }
+  }
 }
 
 impl<'a> EtherPacket<Cursor<'a>> {
@@ -108,50 +111,51 @@ impl<'a> EtherPacket<CursorMut<'a>> {
 
 #[cfg(test)]
 mod test_etherpkt {
-    use super::*;
-    use crate::{ether::ETHER_HEADER_TEMPLATE, Cursor, CursorMut};
-    use bytes::BufMut;
+  use super::*;
+  use crate::{ether::ETHER_HEADER_TEMPLATE, Cursor, CursorMut};
+  use bytes::BufMut;
 
-    static FRAME_BYTES: [u8; 64] = [
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x08, 0x00, 0xaa,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0xff,
-    ];
+  static FRAME_BYTES: [u8; 64] = [
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+    0x08, 0x00, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0xff,
+  ];
 
-    #[test]
-    fn test_parse() {
-        let pres = EtherPacket::parse(Cursor::new(&FRAME_BYTES[..]));
-        assert_eq!(pres.is_ok(), true);
-        let ethpkt = pres.unwrap();
-        assert_eq!(
-            ethpkt.dest_mac(),
-            MacAddr([0x01, 0x02, 0x03, 0x04, 0x05, 0x06])
-        );
-        assert_eq!(
-            ethpkt.source_mac(),
-            MacAddr([0x11, 0x12, 0x13, 0x14, 0x15, 0x16])
-        );
-        assert_eq!(ethpkt.ethertype(), EtherType::IPV4);
+  #[test]
+  fn test_parse() {
+    let pres = EtherPacket::parse(Cursor::new(&FRAME_BYTES[..]));
+    assert_eq!(pres.is_ok(), true);
+    let ethpkt = pres.unwrap();
+    assert_eq!(
+      ethpkt.dest_mac(),
+      MacAddr([0x01, 0x02, 0x03, 0x04, 0x05, 0x06])
+    );
+    assert_eq!(
+      ethpkt.source_mac(),
+      MacAddr([0x11, 0x12, 0x13, 0x14, 0x15, 0x16])
+    );
+    assert_eq!(ethpkt.ethertype(), EtherType::IPV4);
 
-        let next = ethpkt.payload();
-        assert_eq!(next.chunk(), &FRAME_BYTES[ETHER_HEADER_LEN..]);
-    }
+    let next = ethpkt.payload();
+    assert_eq!(next.chunk(), &FRAME_BYTES[ETHER_HEADER_LEN..]);
+  }
 
-    #[test]
-    fn test_construct() {
-        let mut bytes = [0xff; 64];
-        (&mut bytes[ETHER_HEADER_LEN..]).put(&FRAME_BYTES[ETHER_HEADER_LEN..]);
+  #[test]
+  fn test_construct() {
+    let mut bytes = [0xff; 64];
+    (&mut bytes[ETHER_HEADER_LEN..]).put(&FRAME_BYTES[ETHER_HEADER_LEN..]);
 
-        let mut buf = CursorMut::new(&mut bytes[..]);
-        buf.advance(ETHER_HEADER_LEN);
+    let mut buf = CursorMut::new(&mut bytes[..]);
+    buf.advance(ETHER_HEADER_LEN);
 
-        let mut ethpkt = EtherPacket::prepend_header(buf, &ETHER_HEADER_TEMPLATE);
-        ethpkt.set_dest_mac(MacAddr([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
-        ethpkt.set_source_mac(MacAddr([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
-        ethpkt.set_ethertype(EtherType::IPV4);
+    let mut ethpkt = EtherPacket::prepend_header(buf, &ETHER_HEADER_TEMPLATE);
+    ethpkt.set_dest_mac(MacAddr([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
+    ethpkt.set_source_mac(MacAddr([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
+    ethpkt.set_ethertype(EtherType::IPV4);
 
-        assert_eq!(ethpkt.buf().chunk(), &FRAME_BYTES[..]);
-    }
+    assert_eq!(ethpkt.buf().chunk(), &FRAME_BYTES[..]);
+  }
 }
