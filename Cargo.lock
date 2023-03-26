@@ -933,6 +933,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "run-gen"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "clap 3.2.23",
+ "ctrlc",
+ "run-dpdk",
+ "run-packet",
+ "run-time",
+]
+
+[[package]]
 name = "run-packet"
 version = "0.1.0"
 dependencies = [

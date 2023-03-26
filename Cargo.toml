@@ -7,6 +7,7 @@ members = [
   "run-time",
   "run-tcp",
   "run-rpc",
+  "run-gen",
   "examples",
   "benches"
 ]
