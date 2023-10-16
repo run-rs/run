@@ -2,6 +2,7 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
 
 use arrayvec::ArrayVec;
 use ctrlc;
+use run_dpdk::offload::MbufTxOffload;
 use run_dpdk::*;
 use run_packet::ether::*;
 use run_packet::ipv4::*;
@@ -12,7 +13,11 @@ use run_packet::CursorMut;
 // use packet::ether::;
 
 // test pmd test command:
-// sudo ./dpdk-testpmd -l 0-14 -n 4 -- -i  --portlist=0 --forward-mode=txonly --txpkts=60 --txq=14 --rxq=14 --nb-cores=14
+// sudo ./dpdk-testpmd -l 0-1 -n 4 -- -i  --portlist=0 --forward-mode=txonly --txpkts=60 --txq=1 --rxq=1 --nb-cores=1 --burst=64
+
+// with the new configuration
+// testpmd: 19.09
+// run: 20.39
 
 // the following result is acuiqred without setting ip checksum value
 // nbcore      1         2        3        14
@@ -31,14 +36,13 @@ fn init_port(
     rxq_conf: &mut RxQueueConf,
     txq_conf: &mut TxQueueConf,
 ) {
-    let port_infos = service().port_infos().unwrap();
-    let port_info = &port_infos[port_id as usize];
+    let port_info = service().port_info(port_id).unwrap();
     let socket_id = port_info.socket_id;
 
     mpconf.socket_id = socket_id;
     service().mempool_create(mp_name, mpconf).unwrap();
 
-    let pconf = PortConf::from_port_info(port_info).unwrap();
+    let pconf = PortConf::from_port_info(&port_info).unwrap();
 
     rxq_conf.mp_name = mp_name.to_string();
     rxq_conf.socket_id = socket_id;
@@ -60,11 +64,11 @@ fn init_port(
 fn main() {
     DpdkOption::new().init().unwrap();
 
-    let port_id = 0;
-    let nb_qs = 14;
+    let port_id = 3;
+    let nb_qs = 8;
     let mp_name = "mp";
     let mut mpconf = MempoolConf::default();
-    mpconf.nb_mbufs = 8192 * 4;
+    mpconf.nb_mbufs = 8192 * 4 * nb_qs;
     mpconf.per_core_caches = 256;
     let mut rxq_conf = RxQueueConf::default();
     rxq_conf.nb_rx_desc = 1024;
@@ -79,8 +83,8 @@ fn main() {
         &mut txq_conf,
     );
 
-    let start_core = 1;
-    let socket_id = service().port_infos().unwrap()[port_id as usize].socket_id;
+    let start_core = 33;
+    let socket_id = service().port_info(port_id).unwrap().socket_id;
     service()
         .lcores()
         .iter()
@@ -98,16 +102,19 @@ fn main() {
     .unwrap();
 
     let total_header_len = ETHER_HEADER_LEN + IPV4_HEADER_LEN + UDP_HEADER_LEN;
-    let payload_len = 18;
+    let payload_len = 256 - total_header_len;
 
     let mut adder = 0;
     let total_ips = 200;
+    let mut tx_of_flag = MbufTxOffload::ALL_DISABLED;
+    tx_of_flag.enable_ip_cksum();
+    tx_of_flag.enable_udp_cksum();
 
     let mut jhs = Vec::new();
     for i in 0..nb_qs {
         let run = run.clone();
         let jh = std::thread::spawn(move || {
-            service().lcore_bind(i + 1).unwrap();
+            service().lcore_bind(i + start_core).unwrap();
             let mut txq = service().tx_queue(port_id, i as u16).unwrap();
             let mp = service().mempool(mp_name).unwrap();
             let mut batch = ArrayVec::<_, 64>::new();
@@ -133,13 +140,16 @@ fn main() {
                     adder += 1;
                     ippkt.set_dest_ip(Ipv4Addr([192, 168, 23, 2]));
                     ippkt.set_protocol(IpProtocol::UDP);
-                    ippkt.adjust_checksum();
 
                     let mut ethpkt =
                         EtherPacket::prepend_header(ippkt.release(), &ETHER_HEADER_TEMPLATE);
-                    ethpkt.set_dest_mac(MacAddr([0x08, 0x68, 0x8d, 0x61, 0x69, 0x28]));
-                    ethpkt.set_source_mac(MacAddr([0x00, 0x50, 0x56, 0xae, 0x76, 0xf5]));
+                    ethpkt.set_dest_mac(MacAddr([0x0c, 0x42, 0xa1, 0x0b, 0x91, 0xfb]));
+                    ethpkt.set_source_mac(MacAddr([0x0c, 0x42, 0xa1, 0x0b, 0xa0, 0xbb]));
                     ethpkt.set_ethertype(EtherType::IPV4);
+
+                    mbuf.set_tx_offload(tx_of_flag);
+                    mbuf.set_l2_len(ETHER_HEADER_LEN as u64);
+                    mbuf.set_l3_len(IPV4_HEADER_LEN as u64);
                 }
 
                 while batch.len() > 0 {
@@ -150,18 +160,22 @@ fn main() {
         jhs.push(jh);
     }
 
-    let mut old_stats = service().port_stats(port_id).unwrap();
-    while run_curr.load(Ordering::Acquire) {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        let curr_stats = service().port_stats(port_id).unwrap();
-        println!(
-            "pkts per sec: {}, bytes per sec: {}, errors per sec: {}",
-            curr_stats.opackets() - old_stats.opackets(),
-            (curr_stats.obytes() - old_stats.obytes()) as f64 * 8.0 / 1000000000.0,
-            curr_stats.oerrors() - old_stats.oerrors(),
-        );
+    {
+        let mut stats_query = service().stats_query(port_id).unwrap();
+        let mut old_stats = stats_query.query();
+        let mut curr_stats = stats_query.query();
+        while run_curr.load(Ordering::Acquire) {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            stats_query.update(&mut curr_stats);
+            println!(
+                "pkts per sec: {}, bytes per sec: {}, errors per sec: {}",
+                curr_stats.opackets() - old_stats.opackets(),
+                (curr_stats.obytes() - old_stats.obytes()) as f64 * 8.0 / 1000000000.0,
+                curr_stats.oerrors() - old_stats.oerrors(),
+            );
 
-        old_stats = curr_stats;
+            old_stats = curr_stats;
+        }
     }
 
     for jh in jhs {

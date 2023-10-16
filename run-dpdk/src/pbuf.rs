@@ -32,7 +32,7 @@ impl<'a> Pbuf<'a> {
     }
 
     #[inline]
-    pub fn original_buf(&self) -> &Mbuf {
+    pub fn buf(&self) -> &Mbuf {
         self.mbuf_head
     }
 
@@ -41,6 +41,8 @@ impl<'a> Pbuf<'a> {
         self.segs_len - self.chunk_len
     }
 
+    // Advance the cursor to the `target_cursor` position.
+    // Note: this method should only be used by the `advance` and `move_back` trait method.
     #[inline]
     unsafe fn advance_common(&mut self, target_cursor: usize) {
         while self.segs_len <= target_cursor && !self.mbuf_cur.as_ref().next.is_null() {
@@ -158,7 +160,7 @@ mod tests {
     use run_packet::*;
 
     #[test]
-    fn test_pbuf1() {
+    fn read_non_contiguous_packet_data() {
         DpdkOption::new().init().unwrap();
         let mut buf: [u8; 9000] = [0xac; 9000];
         for i in 0..9000 {
@@ -191,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pbuf2() {
+    fn advance_across_non_contiguous_memory_segments() {
         DpdkOption::new().init().unwrap();
         {
             let mut config = MempoolConf::default();
@@ -262,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pbuf3() {
+    fn moveback_across_non_contiguous_memory_segments() {
         DpdkOption::new().init().unwrap();
         {
             let mut config = MempoolConf::default();
@@ -309,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pbuf4() {
+    fn trim_off_test() {
         DpdkOption::new().init().unwrap();
         {
             let mut config = MempoolConf::default();
@@ -469,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn test_checksum() {
+    fn checksum_test_for_non_contiguous_mbuf() {
         DpdkOption::new().init().unwrap();
         {
             let mut config = MempoolConf::default();

@@ -77,10 +77,25 @@ pub struct DpdkService {
 }
 
 impl DpdkService {
+    /// Return a static reference to a list of `Lcore` on the current machine.
+    /// 
+    /// Each `Lcore` contains the lcore id, cpu id and the socket id of the corresponding
+    /// physical CPU core. 
+    /// 
+    /// We obtain the list of `Lcore` by reading the `/sys/` folder under the 
+    /// Linux file system.
     pub fn lcores(&self) -> &Vec<Lcore> {
         &self.lcores
     }
 
+    /// Bind the current thread to the lcore indicated by `lcore_id`.
+    /// 
+    /// This function will fail and return an `Err` if the following conditions happen:
+    /// 1. The DPDK service has been shutdown.
+    /// 2. The lcore id is invalid on the current machine.
+    /// 3. The thread has already been bind to an lcore.
+    /// 4. The lcore has already been bind to another thread.
+    /// 5. The DPDK FFI fails with lcore binding.    
     pub fn lcore_bind(&self, lcore_id: u32) -> Result<()> {
         let mut inner = self.try_lock()?;
 
@@ -93,15 +108,15 @@ impl DpdkService {
         inner.lcores.pin(lcore)
     }
 
-    pub fn mempool_create(&self, name: &str, conf: &MempoolConf) -> Result<Mempool> {
+    pub fn mempool_create<S: AsRef<str>>(&self, name: S, conf: &MempoolConf) -> Result<Mempool> {
         let mut inner = self.try_lock()?;
 
-        if inner.mpools.contains_key(name) {
+        if inner.mpools.contains_key(name.as_ref()) {
             return Error::service_err("mempool already exists").to_err();
         }
 
-        let mp = Mempool::try_create(name.to_string(), conf)?;
-        inner.mpools.insert(name.to_string(), mp.clone());
+        let mp = Mempool::try_create(name.as_ref().to_string(), conf)?;
+        inner.mpools.insert(name.as_ref().to_string(), mp.clone());
 
         Ok(mp)
     }
@@ -109,12 +124,12 @@ impl DpdkService {
     pub fn mempool_free(&self, name: &str) -> Result<()> {
         let mut inner = self.try_lock()?;
 
-        let mp_context = inner
+        let mp = inner
             .mpools
             .get_mut(name)
             .ok_or(Error::service_err("no such mempool"))?;
 
-        if !mp_context.in_use() && mp_context.full() {
+        if !mp.in_use() && mp.full() {
             // We are the sole owner of the counter, this also means that
             // we are the sole owner of the PtrWrapper, and we are safe to deallocate it.
             // The mempool to be removed is also full, this means that there are no out-going
@@ -137,20 +152,18 @@ impl DpdkService {
         Ok(mp.clone())
     }
 
-    pub fn port_infos(&self) -> Result<Vec<PortInfo>> {
-        let inner = self.try_lock()?;
-        let mut port_infos = Vec::new();
+    pub fn port_num(&self) -> Result<u16> {
+        let _inner = self.try_lock()?;
+        unsafe { Ok(ffi::rte_eth_dev_count_avail()) }
+    }
 
-        let dev_nb = unsafe { ffi::rte_eth_dev_count_avail() };
-        for port_id in 0..dev_nb {
-            let mut port_info = unsafe { PortInfo::try_get(port_id) }?;
-            if inner.ports.get(&port_id).is_some() {
-                port_info.started = true;
-            }
-            port_infos.push(port_info);
+    pub fn port_info(&self, port_id: u16) -> Result<PortInfo> {
+        let _inner = self.try_lock()?;
+
+        if port_id >= unsafe { ffi::rte_eth_dev_count_avail() } {
+            return Err(Error::service_err("invalid port id"));
         }
-
-        Ok(port_infos)
+        unsafe { PortInfo::try_get(port_id) }
     }
 
     // rte_eth_dev_configure
@@ -189,24 +202,6 @@ impl DpdkService {
         Ok(())
     }
 
-    pub fn port_stats(&self, port_id: u16) -> Result<PortStats> {
-        let inner = self.try_lock()?;
-
-        if inner.ports.get(&port_id).is_none() {
-            return Error::service_err("port not started").to_err();
-        }
-
-        unsafe {
-            let mut port_stats: ffi::rte_eth_stats = std::mem::zeroed();
-            let res = ffi::rte_eth_stats_get(port_id, &mut port_stats as *mut ffi::rte_eth_stats);
-            if res != 0 {
-                return Error::ffi_err(res, "fail to get eth stats").to_err();
-            }
-
-            Ok(PortStats(port_stats))
-        }
-    }
-
     pub fn port_close(&self, port_id: u16) -> Result<()> {
         let mut inner = self.try_lock()?;
 
@@ -243,6 +238,15 @@ impl DpdkService {
         port.tx_queue(qid)
     }
 
+    pub fn stats_query(&self, port_id: u16) -> Result<StatsQueryContext> {
+        let inner = self.try_lock()?;
+        let port = inner
+            .ports
+            .get(&port_id)
+            .ok_or(Error::service_err("invalid port id"))?;
+        port.stats_query()
+    }
+
     pub fn service_close(&self) -> Result<()> {
         let mut inner = self.service.lock().unwrap();
         if inner.started {
@@ -274,6 +278,10 @@ pub fn try_service() -> Result<&'static DpdkService> {
         .ok_or(Error::service_err("service is not initialized"))
 }
 
+/// Return a static reference to the `DpdkService` instance.
+/// 
+/// The `DpdkService` instance will only be initialized once, and all
+/// subsequent access to the public methods are protected by a global lock. 
 pub fn service() -> &'static DpdkService {
     match SERVICE.get() {
         Some(handle) => handle,

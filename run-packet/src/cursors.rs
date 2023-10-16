@@ -151,7 +151,7 @@ impl<'a> PktMut for CursorMut<'a> {
 }
 
 #[cfg(test)]
-mod test_cursors {
+mod tests {
     use super::*;
 
     #[test]

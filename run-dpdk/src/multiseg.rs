@@ -155,30 +155,57 @@ impl Mbuf {
     }
 
     #[inline]
-    pub fn set_tx_offload(&mut self, tx_offload: &MbufTxOffload) {
+    pub fn set_tx_offload(&mut self, tx_offload: MbufTxOffload) {
         unsafe {
-            self.ptr.as_mut().ol_flags = tx_offload.tx_offload;
-            self.ptr
-                .as_mut()
-                .__bindgen_anon_3
-                .__bindgen_anon_1
-                .set_l2_len(tx_offload.l2_len);
-            self.ptr
-                .as_mut()
-                .__bindgen_anon_3
-                .__bindgen_anon_1
-                .set_l3_len(tx_offload.l3_len);
+            self.ptr.as_mut().ol_flags = tx_offload.0;
         }
     }
 
-    // modified to pub for netbricks_port
     #[inline]
-    pub unsafe fn from_raw(ptr: *mut ffi::rte_mbuf) -> Self {
+    pub fn set_l2_len(&mut self, val: u64) {
+        unsafe {
+            self.ptr
+                .as_mut()
+                .__bindgen_anon_3
+                .__bindgen_anon_1
+                .set_l2_len(val);
+        }
+    }
+
+    #[inline]
+    pub fn set_l3_len(&mut self, val: u64) {
+        unsafe {
+            self.ptr
+                .as_mut()
+                .__bindgen_anon_3
+                .__bindgen_anon_1
+                .set_l3_len(val);
+        }
+    }
+
+    #[inline]
+    pub(crate) unsafe fn from_raw(ptr: *mut ffi::rte_mbuf) -> Self {
         Self {
             ptr: NonNull::new_unchecked(ptr),
         }
     }
 
+    // modified to pub for netbricks_port
+    #[inline]
+    pub(crate) fn into_raw(self) -> *mut ffi::rte_mbuf {
+        let ptr = self.ptr;
+        std::mem::forget(self);
+        ptr.as_ptr()
+    }
+
+    // modified to pub for netbricks_port
+    #[inline]
+    pub(crate) fn as_ptr(&self) -> *const ffi::rte_mbuf {
+        self.ptr.as_ptr()
+    }
+}
+
+impl Mbuf {
     #[inline]
     pub fn num_segs(&self) -> usize {
         usize::from(unsafe { self.ptr.as_ref().nb_segs })
@@ -288,20 +315,6 @@ impl Mbuf {
             _data: PhantomData,
         }
     }
-
-    // modified to pub for netbricks_port
-    #[inline]
-    pub fn as_ptr(&self) -> *const ffi::rte_mbuf {
-        self.ptr.as_ptr()
-    }
-
-    // modified to pub for netbricks_port
-    #[inline]
-    pub fn into_raw(self) -> *mut ffi::rte_mbuf {
-        let ptr = self.ptr;
-        std::mem::forget(self);
-        ptr.as_ptr()
-    }
 }
 
 impl Drop for Mbuf {
@@ -392,7 +405,7 @@ mod tests {
     use crate::*;
 
     #[test]
-    fn test_singleseg_mbuf() {
+    fn mbuf_data_append_remove() {
         DpdkOption::new().init().unwrap();
 
         {
@@ -465,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiseg_mbuf1() {
+    fn create_multiseg_mbuf_from_chainer() {
         DpdkOption::new().init().unwrap();
 
         {
@@ -503,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiseg_mbuf2() {
+    fn create_multiseg_mbuf_from_slice() {
         DpdkOption::new().init().unwrap();
         let mut buf: [u8; 9000] = [0xac; 9000];
         for i in 0..9000 {
@@ -541,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiseg_mbuf3() {
+    fn chain_mbuf_into_multiseg_mbuf() {
         DpdkOption::new().init().unwrap();
         let mut buf: [u8; 9000] = [0xac; 9000];
         for i in 0..9000 {
@@ -571,7 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiseg_mbuf4() {
+    fn truncate_multiseg_mbuf() {
         DpdkOption::new().init().unwrap();
         let mut buf: [u8; 9000] = [0xac; 9000];
         for i in 0..9000 {

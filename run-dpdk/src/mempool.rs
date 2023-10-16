@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use std::ffi::CString;
-use std::os::raw::{c_char, c_uint};
+use std::os::raw::c_char;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
@@ -12,24 +12,35 @@ use crate::Mbuf;
 
 #[derive(Clone, Copy, Debug)]
 pub struct MempoolConf {
-    pub nb_mbufs: c_uint,
-    pub per_core_caches: c_uint,
+    pub nb_mbufs: u32,
+    pub per_core_caches: u32,
     pub dataroom: u16,
     pub socket_id: u32,
 }
 
 impl MempoolConf {
     pub const DATAROOM: u16 = ffi::RTE_MBUF_DEFAULT_DATAROOM as u16;
-    pub const NB_MBUFS: c_uint = 2048;
-    pub const PER_CORE_CACHES: c_uint = 0;
+    pub const NB_MBUFS: u32 = 2048;
+    pub const PER_CORE_CACHES: u32 = 0;
 
-    pub fn new(nb_mbufs: c_uint, per_core_caches: c_uint, dataroom: u16, socket_id: u32) -> Self {
-        Self {
-            nb_mbufs,
-            per_core_caches,
-            dataroom,
-            socket_id,
-        }
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_nb_mbufs(&mut self, val: u32) {
+        self.nb_mbufs = val;
+    }
+
+    pub fn set_per_core_caches(&mut self, val: u32) {
+        self.per_core_caches = val;
+    }
+
+    pub fn set_dataroom(&mut self, val: u16) {
+        self.dataroom = val;
+    }
+
+    pub fn set_socket_id(&mut self, val: u32) {
+        self.socket_id = val;
     }
 }
 
@@ -159,7 +170,7 @@ mod tests {
     use arrayvec::*;
 
     #[test]
-    fn test_mempool1() {
+    fn create_mempool_with_same_name() {
         DpdkOption::new().init().unwrap();
 
         {
@@ -181,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mempool2() {
+    fn mbuf_alloc_and_size_check() {
         DpdkOption::new().init().unwrap();
 
         {
@@ -217,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mempool3() {
+    fn mbuf_data_unchanged_after_realloc() {
         DpdkOption::new().init().unwrap();
 
         {
@@ -244,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mempool4() {
+    fn alloc_mbuf_from_multiple_threads() {
         DpdkOption::new().init().unwrap();
         assert_eq!(service().lcores().len() >= 4, true);
 

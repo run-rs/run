@@ -128,61 +128,6 @@ impl PortInfo {
 }
 
 #[derive(Clone)]
-pub struct PortStats(pub(crate) ffi::rte_eth_stats);
-
-impl PortStats {
-    pub const QUEUE_STAT_CNTRS: usize = ffi::RTE_ETHDEV_QUEUE_STAT_CNTRS as usize;
-
-    pub fn ipackets(&self) -> u64 {
-        self.0.ipackets
-    }
-
-    pub fn opackets(&self) -> u64 {
-        self.0.opackets
-    }
-
-    pub fn ibytes(&self) -> u64 {
-        self.0.ibytes
-    }
-
-    pub fn obytes(&self) -> u64 {
-        self.0.obytes
-    }
-
-    pub fn imissed(&self) -> u64 {
-        self.0.imissed
-    }
-
-    pub fn oerrors(&self) -> u64 {
-        self.0.oerrors
-    }
-
-    pub fn rx_nombuf(&self) -> u64 {
-        self.0.rx_nombuf
-    }
-
-    pub fn q_ipackets(&self, qid: usize) -> u64 {
-        self.0.q_ipackets[qid]
-    }
-
-    pub fn q_opackets(&self, qid: usize) -> u64 {
-        self.0.q_opackets[qid]
-    }
-
-    pub fn q_ibytes(&self, qid: usize) -> u64 {
-        self.0.q_ibytes[qid]
-    }
-
-    pub fn q_obytes(&self, qid: usize) -> u64 {
-        self.0.q_obytes[qid]
-    }
-
-    pub fn q_errors(&self, qid: usize) -> u64 {
-        self.0.q_errors[qid]
-    }
-}
-
-#[derive(Clone)]
 pub struct PortConf {
     pub mtu: u32, // packet length except ethernet overhead
     pub tx_offloads: DevTxOffload,
@@ -208,6 +153,13 @@ impl PortConf {
 
     /// The maximum frame size of an ethernet jumboframe.
     pub const RTE_ETHER_MAX_JUMBO_PKT_LEN: u16 = 9600;
+
+    /// The default size of the RSS hash key.
+    pub const HASH_KEY_SIZE: u8 = 40;
+
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn from_port_info(port_info: &PortInfo) -> Result<Self> {
         // Check whether the port suppports the default ethernet MTU size.
@@ -250,9 +202,10 @@ impl PortConf {
 
         // Check whether the rss hash key size is 40, currently we only provide a 40-byte
         // rss hask key.
-        if port_info.hash_key_size() != 40 {
-            return Error::service_err("invalid rss hash key size").to_err();
-        }
+        // This is not compatible with Intel NIC.
+        // if port_info.hash_key_size() != Self::HASH_KEY_SIZE {
+        //     return Error::service_err("invalid rss hash key size").to_err();
+        // }
 
         Ok(Self {
             mtu: u32::from(Self::RTE_ETHER_MTU),
@@ -262,6 +215,32 @@ impl PortConf {
             rss_hash_key: DEFAULT_RSS_KEY_40B.to_vec(),
             enable_promiscuous: true,
         })
+    }
+
+    pub fn set_mtu(&mut self, val: u32) {
+        self.mtu = val;
+    }
+
+    pub fn set_tx_offloads(&mut self, val: DevTxOffload) {
+        self.tx_offloads = val;
+    }
+
+    pub fn set_rx_offloads(&mut self, val: DevRxOffload) {
+        self.rx_offloads = val;
+    }
+
+    pub fn set_rss_hf(&mut self, val: RssHashFunc) {
+        self.rss_hf = val;
+    }
+
+    pub fn set_rss_hash_key(&mut self, val: &[u8; Self::HASH_KEY_SIZE as usize]) {
+        let mut v = Vec::new();
+        v.extend_from_slice(&val[..]);
+        self.rss_hash_key = v;
+    }
+
+    pub fn set_enable_promiscuous(&mut self, val: bool) {
+        self.enable_promiscuous = val;
     }
 
     // Safety: The returned `rte_eth_conf` must not live past `PortConf`.
@@ -314,6 +293,7 @@ pub(crate) struct Port {
     port_id: u16,
     rxq_cts: Vec<(RxQueue, Mempool)>,
     txqs: Vec<TxQueue>,
+    stats_query_ct: StatsQueryContext,
 }
 
 impl Port {
@@ -389,6 +369,10 @@ impl Port {
             port_id,
             rxq_cts,
             txqs,
+            stats_query_ct: StatsQueryContext {
+                port_id,
+                counter: Arc::new(()),
+            },
         })
     }
 
@@ -410,6 +394,10 @@ impl Port {
         txq.clone_once()
     }
 
+    pub(crate) fn stats_query(&self) -> Result<StatsQueryContext> {
+        self.stats_query_ct.clone_once()
+    }
+
     pub(crate) fn can_shutdown(&self) -> bool {
         for rxq_ct in self.rxq_cts.iter() {
             if rxq_ct.0.in_use() {
@@ -420,6 +408,9 @@ impl Port {
             if txq_ct.in_use() {
                 return false;
             }
+        }
+        if self.stats_query_ct.in_use() {
+            return false;
         }
         true
     }
@@ -448,12 +439,20 @@ pub struct RxQueueConf {
 impl RxQueueConf {
     pub const NB_RX_DESC: u16 = 512;
 
-    pub fn new<S: AsRef<str>>(nb_rx_desc: u16, socket_id: u32, mp_name: S) -> Self {
-        Self {
-            nb_rx_desc,
-            socket_id,
-            mp_name: mp_name.as_ref().to_string(),
-        }
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_nb_rx_desc(&mut self, val: u16) {
+        self.nb_rx_desc = val;
+    }
+
+    pub fn set_socket_id(&mut self, val: u32) {
+        self.socket_id = val;
+    }
+
+    pub fn set_mp_name<S: AsRef<str>>(&mut self, val: S) {
+        self.mp_name = val.as_ref().to_string();
     }
 }
 
@@ -546,11 +545,16 @@ pub struct TxQueueConf {
 impl TxQueueConf {
     pub const NB_TX_DESC: u16 = 512;
 
-    pub fn new(nb_tx_desc: u16, socket_id: u32) -> Self {
-        Self {
-            nb_tx_desc,
-            socket_id,
-        }
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_nb_tx_desc(&mut self, val: u16) {
+        self.nb_tx_desc = val;
+    }
+
+    pub fn set_socket_id(&mut self, val: u32) {
+        self.socket_id = val;
     }
 }
 
@@ -620,6 +624,111 @@ impl TxQueue {
         Ok(TxQueue {
             port_id: self.port_id,
             qid: self.qid,
+            counter: self.counter.clone(),
+        })
+    }
+
+    fn in_use(&self) -> bool {
+        Arc::strong_count(&self.counter) != 1
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PortStats(ffi::rte_eth_stats);
+
+impl PortStats {
+    pub const QUEUE_STAT_CNTRS: usize = ffi::RTE_ETHDEV_QUEUE_STAT_CNTRS as usize;
+
+    pub fn ipackets(&self) -> u64 {
+        self.0.ipackets
+    }
+
+    pub fn opackets(&self) -> u64 {
+        self.0.opackets
+    }
+
+    pub fn ibytes(&self) -> u64 {
+        self.0.ibytes
+    }
+
+    pub fn obytes(&self) -> u64 {
+        self.0.obytes
+    }
+
+    pub fn imissed(&self) -> u64 {
+        self.0.imissed
+    }
+
+    pub fn oerrors(&self) -> u64 {
+        self.0.oerrors
+    }
+
+    pub fn rx_nombuf(&self) -> u64 {
+        self.0.rx_nombuf
+    }
+
+    pub fn q_ipackets(&self, qid: usize) -> u64 {
+        self.0.q_ipackets[qid]
+    }
+
+    pub fn q_opackets(&self, qid: usize) -> u64 {
+        self.0.q_opackets[qid]
+    }
+
+    pub fn q_ibytes(&self, qid: usize) -> u64 {
+        self.0.q_ibytes[qid]
+    }
+
+    pub fn q_obytes(&self, qid: usize) -> u64 {
+        self.0.q_obytes[qid]
+    }
+
+    pub fn q_errors(&self, qid: usize) -> u64 {
+        self.0.q_errors[qid]
+    }
+}
+
+impl Default for PortStats {
+    fn default() -> Self {
+        let stats: ffi::rte_eth_stats = unsafe { std::mem::zeroed() };
+        Self(stats)
+    }
+}
+
+/// A context to query the stats counters from the port.
+/// This context is reference counted. 
+pub struct StatsQueryContext {
+    port_id: u16,
+    counter: Arc<()>,
+}
+
+impl StatsQueryContext {
+    pub fn query(&mut self) -> PortStats {
+        unsafe {
+            let mut port_stats: ffi::rte_eth_stats = std::mem::zeroed();
+            let res =
+                ffi::rte_eth_stats_get(self.port_id, &mut port_stats as *mut ffi::rte_eth_stats);
+            assert!(res == 0);
+
+            PortStats(port_stats)
+        }
+    }
+
+    pub fn update(&mut self, port_stats: &mut PortStats) {
+        unsafe {
+            let res =
+                ffi::rte_eth_stats_get(self.port_id, &mut port_stats.0 as *mut ffi::rte_eth_stats);
+            assert!(res == 0);
+        }
+    }
+
+    fn clone_once(&self) -> Result<Self> {
+        if self.in_use() {
+            return Error::service_err("port stats query is in use").to_err();
+        }
+
+        Ok(Self {
+            port_id: self.port_id,
             counter: self.counter.clone(),
         })
     }

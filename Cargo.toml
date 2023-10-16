@@ -6,5 +6,4 @@ members = [
   "run-dpdk",
   "run-time",
   "examples",
-  "benches"
 ]
